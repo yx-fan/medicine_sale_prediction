@@ -12,3 +12,5 @@ __pycache__/
 # Ignore other generated files
 *.log
 *.env
+
+dataset
