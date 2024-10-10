@@ -1,138 +1,116 @@
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 import matplotlib.pyplot as plt
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from matplotlib.font_manager import FontProperties
+import pmdarima as pm
 
-# 加载数据并确保 'week_start_date' 为 datetime 格式
-file_path = './merged_data.csv'
-merged_data = pd.read_csv(file_path)
+# 设置中文字体
+font = FontProperties(fname='/System/Library/Fonts/STHeiti Light.ttc')
 
-# 确保 'week_start_date' 是 datetime 格式
-merged_data['week_start_date'] = pd.to_datetime(merged_data['week_start_date'])
+# 读取数据
+df = pd.read_csv('final_combined_df.csv')
 
-# 初始数据预览和总行数检查
-print("Initial data preview:\n", merged_data.head())
-print("Total rows after loading:", len(merged_data))
+# 确保日期格式正确
+df['start_date'] = pd.to_datetime(df['start_date'])
+df = df.sort_values('start_date')
 
-# 检查并打印不同药品的分布情况
-print("Unique products (药品名称):", merged_data['药品名称'].unique())
-print("Product count distribution:\n", merged_data['药品名称'].value_counts())
+# 获取唯一的 药品名称 + 厂家 组合
+unique_groups = df.groupby(['药品名称', '厂家']).size().reset_index(name='count')
 
-# 检查是否有重复的记录
-duplicates_before = merged_data[merged_data.duplicated(subset=['药品名称', 'week_start_date'], keep=False)]
-print(f"Before aggregation, found {len(duplicates_before)} duplicated rows")
+# 定义阈值，至少需要 52 周的数据
+min_weeks = 65
 
-# 对相同的 '药品名称' 和 'week_start_date' 进行聚合，确保每个时间点只有一条数据
-merged_data = merged_data.groupby(['药品名称', 'week_start_date']).agg({
-    '减少数量': 'sum',
-    **{col: 'first' for col in merged_data.columns if col.startswith('厂家_')}
-}).reset_index()
+# 用于保存模型参数和误差信息的表格
+model_results = []
 
-# 再次检查是否还有重复的时间索引
-duplicates_after = merged_data[merged_data.duplicated(subset=['药品名称', 'week_start_date'], keep=False)]
-print(f"After aggregation, found {len(duplicates_after)} duplicated rows")
+# 遍历每个 药品名称 + 厂家 组合
+all_results = pd.DataFrame()
 
-# 打印聚合后数据的基本信息
-print("After aggregation, total rows:", len(merged_data))
-print("Unique products after aggregation:", merged_data['药品名称'].unique())
+for _, row in unique_groups.iterrows():
+    drug_name = row['药品名称']
+    factory_name = row['厂家']
 
-# 检查是否仍然有大量的重复索引，并解决这个问题
-merged_data.set_index('week_start_date', inplace=True)
-if merged_data.index.duplicated().sum() > 0:
-    print(f"Found {merged_data.index.duplicated().sum()} duplicated index entries. Removing duplicates.")
-    merged_data = merged_data.loc[~merged_data.index.duplicated()]
+    # 取出该组合的所有数据
+    group_data = df[(df['药品名称'] == drug_name) & (df['厂家'] == factory_name)].copy()
 
-# 确保 '减少数量' 列为数值型并处理缺失值
-merged_data['减少数量'] = pd.to_numeric(merged_data['减少数量'], errors='coerce').fillna(0)
-
-# 确保厂家相关的列为数值型，将布尔值转换为整数
-exog_columns = [col for col in merged_data.columns if col.startswith("厂家_")]
-for col in exog_columns:
-    merged_data[col] = merged_data[col].astype(int)
-
-# 打印列的数据类型，以确保没有布尔值或其他非数值类型
-print("Data types after numeric conversion:\n", merged_data.dtypes)
-
-# 获取所有产品名称
-products = merged_data['药品名称'].unique()
-print("Total unique products after cleaning: ", len(products))
-
-# 初始化预测结果列表
-forecasts = []
-skipped_products = 0
-
-# 遍历每个产品并进行 SARIMAX 预测
-for product in products:
-    print(f"Processing {product}...")
-
-    # 过滤当前产品的数据
-    product_data = merged_data[merged_data["药品名称"] == product]
-
-    # 打印减少数量的总和
-    total_sales = product_data['减少数量'].sum()
-    print(f"Total '减少数量' for {product}: {total_sales}")
-
-    # 检查是否所有的 '减少数量' 都是 0
-    if total_sales == 0:
-        print(f"Skipping {product} because all '减少数量' are 0.")
-        skipped_products += 1
+    # 如果数据不足 52 周，则跳过
+    if len(group_data) < min_weeks:
+        print(f"跳过 {drug_name} + {factory_name}，数据不足 {min_weeks} 周")
         continue
 
-    # 按索引排序
-    product_data = product_data.sort_index()
+    # 定义目标变量和外生变量
+    y = group_data['减少数量']
+    exog = group_data[['期初金额占比', 'previous_增加数量']]
 
-    # 根据日期进行训练集和测试集的划分
-    split_date = product_data.index[int(len(product_data) * 0.8)]  # 80% 用于训练
-    train_data = product_data.loc[:split_date]
-    test_data = product_data.loc[split_date:]
+    print(f"样本量: {len(y[:min_weeks])}")
+    # 自动调参
+    auto_model = pm.auto_arima(y[:min_weeks], exogenous=exog[:min_weeks], seasonal=True, m=52, max_d=2, D=1, stepwise=True, trace=True)
 
-    # 厂家相关的列
-    exog_columns = [col for col in product_data.columns if col.startswith("厂家_")]
+    # 打印自动选取的模型参数
+    print(f"自动选取的模型: {drug_name} + {factory_name}")
+    print(auto_model.summary())
 
-    # 分割目标变量 (减少数量) 和外生变量 (厂家)
-    train_target = train_data['减少数量']
-    test_target = test_data['减少数量']
-    train_exog = train_data[exog_columns]
-    test_exog = test_data[exog_columns]
+    # 预测
+    # y_pred_train = auto_model.predict_in_sample(exogenous=exog[:min_weeks])
+    if len(group_data) > min_weeks:
+        y_pred_test = auto_model.predict(n_periods=len(y) - min_weeks, exogenous=exog[min_weeks:])
+    else:
+        y_pred_test = None
 
-    # 打印外生变量的情况
-    print(f"Train exogenous variables for {product}:\n", train_exog.head())
-    print(f"Exogenous variable types for {product}:\n", train_exog.dtypes)
+    # 计算误差
+    # train_mse = mean_squared_error(y[:min_weeks], y_pred_train)
+    # print(f"训练集MSE: {train_mse}")
+    
+    if y_pred_test is not None:
+        test_mse = mean_squared_error(y[min_weeks:], y_pred_test)
+        print(f"测试集MSE: {test_mse}")
 
-    try:
-        # 建立并拟合 SARIMAX 模型
-        model = SARIMAX(train_target, exog=train_exog, order=(1, 1, 0), seasonal_order=(0, 0, 0, 0))
-        sarimax_result = model.fit(disp=False)
+    # 保存模型参数和误差信息
+    model_results.append({
+        '药品名称': drug_name,
+        '厂家': factory_name,
+        'p': auto_model.order[0],
+        'd': auto_model.order[1],
+        'q': auto_model.order[2],
+        'P': auto_model.seasonal_order[0],
+        'D': auto_model.seasonal_order[1],
+        'Q': auto_model.seasonal_order[2],
+        'm': auto_model.seasonal_order[3],
+        'AIC': auto_model.aic(),
+        'BIC': auto_model.bic(),
+        '测试集MSE': test_mse
+    })
 
-        # 预测测试期
-        forecast = sarimax_result.forecast(steps=len(test_target), exog=test_exog)
-
+    # 保存预测结果
         # 保存预测结果
-        forecasts.append({
-            '药品名称': product,
-            'week_start_date': test_data.index.values,
-            'actual': test_target.values,
-            'forecast': forecast.values
-        })
+    if y_pred_test is not None:
+        # 创建一个新的列来标记预测数据
+        group_data.loc[min_weeks:, '预测减少数量'] = y_pred_test
+        group_data.loc[min_weeks:, '预测类型'] = '测试集预测'
 
-        # 绘制实际值与预测值的对比
-        plt.figure(figsize=(10,6))
-        plt.plot(train_data.index, train_target, label='Training Data')
-        plt.plot(test_data.index, test_target, label='Actual Sales')
-        plt.plot(test_data.index, forecast, label='Forecasted Sales', linestyle='--')
-        plt.title(f'SARIMAX Forecast for {product}')
-        plt.xlabel('Week Start Date')
-        plt.ylabel('Sales (减少数量)')
-        plt.legend()
-        plt.grid(True)
-        plt.show()
+    all_results = pd.concat([all_results, group_data])
 
-        # 计算评估指标
-        mae = mean_absolute_error(test_target, forecast)
-        mse = mean_squared_error(test_target, forecast)
-        print(f"Product: {product} - MAE: {mae}, MSE: {mse}")
+    # 可视化结果
+    plt.figure(figsize=(10, 6))
+    plt.plot(group_data['start_date'], group_data['减少数量'], label='实际减少数量')
+    # plt.plot(group_data['start_date'][:min_weeks], y_pred_train, label='训练集预测', linestyle='--')
+    
+    if y_pred_test is not None:
+        plt.plot(group_data['start_date'][min_weeks:], y_pred_test, label='测试集预测', linestyle='--')
+    
+    plt.xlabel('日期', fontproperties=font)
+    plt.ylabel('减少数量', fontproperties=font)
+    plt.title(f'SARIMAX 模型预测 vs 实际值 - {drug_name} + {factory_name}', fontproperties=font)
+    plt.legend(prop=font)
+    # 显示图表3秒
+    plt.pause(3)
+    # 自动关闭图表
+    plt.close()
 
-    except Exception as e:
-        print(f"Error processing {product}: {e}")
+# 保存模型参数和误差到文件
+model_results_df = pd.DataFrame(model_results)
+model_results_df.to_csv('model_results.csv', index=False)
 
-print(f"Total products skipped: {skipped_products}")
+# 最后保存所有预测结果到一个文件
+all_results.to_csv('all_predicted_results.csv', index=False)
