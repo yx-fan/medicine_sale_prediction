@@ -135,6 +135,7 @@ for name, group in combined_df.groupby(['药品名称', '厂家']):
     if len(unique_diff) > 1 or unique_diff[0] != pd.Timedelta(days=7):
         print(f"存在不一致的日期间隔, 组名: {name}")
         print(group[['药品名称', '厂家', 'start_date', 'end_date']])
+        print(unique_diff)
 
 
 combined_df.to_csv('final_combined_df.csv', index=False)
