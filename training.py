@@ -3,7 +3,7 @@ import numpy as np
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_percentage_error, mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 from sklearn.model_selection import GridSearchCV
@@ -13,6 +13,17 @@ import argparse
 sparsity_threshold = 0.2
 min_weeks = 65
 font = FontProperties(fname='/System/Library/Fonts/STHeiti Light.ttc')  # 设置中文字体
+
+def is_model_ok(model_summary):
+    # 将 Summary 对象转换为字符串
+    print(model_summary)
+    summary_text = model_summary.as_text()
+
+    # 解析 summary 文本，找到异常情况
+    if 'nan' in summary_text or '-inf' in summary_text:
+        print("存在 nan 或 -inf")
+        return False
+    return True
 
 # 定义超参数网格
 #param_grid = {
@@ -24,12 +35,22 @@ font = FontProperties(fname='/System/Library/Fonts/STHeiti Light.ttc')  # 设置
 #    'bootstrap': [True, False]
 #}
 
+# 添加命令行参数
+parser = argparse.ArgumentParser(description='SARIMAX model with specific start date for training')
+parser.add_argument('--start_date', type=str, required=True, help='The start date from which to include data for training (format: YYYY-MM-DD)')
+args = parser.parse_args()
+start_date_filter = pd.to_datetime(args.start_date) 
+
 df = pd.read_csv('final_combined_df.csv') # 读取数据
 
 # 确保日期格式正确
 df['start_date'] = pd.to_datetime(df['start_date'])
 df = df.set_index('start_date')
 df = df.sort_values('start_date')
+
+# 根据指定的start_date进行过滤
+df = df[df.index >= start_date_filter]
+print(f"训练数据从 {start_date_filter} 开始")
 
 unique_groups = df.groupby(['药品名称', '厂家']).size().reset_index(name='count')  # 获取唯一的 药品名称 + 厂家 组合
 model_results = []   # 用于保存模型参数和误差信息的表格
@@ -41,7 +62,7 @@ for _, row in unique_groups.iterrows():
     print(f"当前处理的药品名称: {drug_name}, 厂家: {factory_name}")
     group_data = df[(df['药品名称'] == drug_name) & (df['厂家'] == factory_name)].copy()  # 取出该组合的所有数据
 
-    # 如果数据不足 52 周，则跳过
+    # 如果数据不足 65 周，则跳过
     if len(group_data) < min_weeks:
         print(f"跳过 {drug_name} + {factory_name}，数据不足 {min_weeks} 周")
         continue
@@ -85,9 +106,15 @@ for _, row in unique_groups.iterrows():
     print(history_exog.head())
 
     # 使用 pmdarima 进行自动模型选择
-    auto_model = pm.auto_arima(history_y, exogenous=history_exog, seasonal=True, m=52, max_d=2, max_p=2, max_q=2, D=1, stepwise=True, trace=True)
-    print(f"自动选取的模型: {drug_name} + {factory_name}")
-    print(auto_model.summary())
+    auto_model = pm.auto_arima(history_y, exogenous=history_exog, seasonal=True, m=52, max_d=2, max_p=3, max_q=3, D=1, stepwise=True, trace=True)
+    summary = auto_model.summary()
+
+    if is_model_ok(summary):
+        print(f"自动选取的模型: {drug_name} + {factory_name}")
+        print(summary)
+    else:
+        print(f"自动选取的模型存在异常: {drug_name} + {factory_name}")
+        continue
 
     # 重置索引，确保索引正确
     log_y = log_y.reset_index(drop=True)
@@ -151,9 +178,9 @@ for _, row in unique_groups.iterrows():
         # 动态调整 scaling_factor
         recent_residuals = residuals[-3:]  # 使用最近3期的残差来动态调整权重
         if len(recent_residuals) > 0:
-            scaling_factor = 0.5 * np.abs(recent_residuals[-1]) / np.mean(np.abs(recent_residuals))
+            scaling_factor = 1 * np.abs(recent_residuals[-1]) / np.mean(np.abs(recent_residuals))
         else:
-            scaling_factor = 0.5
+            scaling_factor = 1
         # 将 residuals 列表临时转换为 Pandas Series 进行 rolling 平滑
         residuals_series = pd.Series(residuals)
         # 将 residuals 列表临时转换为 Pandas Series 进行 rolling 平滑
@@ -163,17 +190,20 @@ for _, row in unique_groups.iterrows():
             smoothed_residual = 1 * predicted_residual + 0 * residuals_series.mean()  # 给当前预测残差较大的权重
         else:
             smoothed_residual = predicted_residual  # 如果不足3期，使用当前预测残差
-        print(f"Residuals effect: smoothed_residual * scaling_factor = {smoothed_residual} * {scaling_factor}")
-        final_pred_log = next_pred_log + smoothed_residual * scaling_factor
+        final_pred_log = max(next_pred_log + smoothed_residual * scaling_factor, 0)
+        final_pred_log = min(final_pred_log, 1.5 * next_pred_log)
+        print(f"Final prediction: {final_pred_log}")
+        print(f"Next prediction: {next_pred_log}")
+        print(f"Predicted residual: {final_pred_log - next_pred_log}")
         log_predictions.append(final_pred_log)
         # print(log_predictions)
         actual_value = log_y.iloc[t]
-        residual = actual_value - final_pred_log  # 计算残差
+        residual = actual_value - next_pred_log  # 计算残差
         residuals.append(residual)
 
         # 滚动窗口：将真实的观测值加入训练集
-        history_y = log_y[:t+1]
-        history_exog = exog[:t+1]
+        history_y = log_y[max(0, t-min_weeks):t+1]
+        history_exog = exog[max(0, t-min_weeks):t+1]
 
         print(f"Residuals shape: {len(residuals)}")
         print(f"History_exog shape: {history_exog.shape}")
@@ -182,14 +212,37 @@ for _, row in unique_groups.iterrows():
         history_exog_with_y = history_exog.copy()
         shifted_log_y = log_y.shift(1).fillna(0)
         history_exog_with_y['shifted_log_y'] = shifted_log_y[:t+1]
-        ml_model.fit(history_exog_with_y, residuals)  # 更新机器学习模型
+        ml_model.fit(history_exog_with_y, residuals[-len(history_exog):])  # 更新机器学习模型
 
     # 还原预测值：从 log 变换还原到原始尺度
     predictions = np.expm1(log_predictions)
+    actual_values = np.expm1(log_y[train_end:])  # 还原log后的真实值
+    predicted_values = predictions
+    # 计算实际值的平均值
+    mean_actual = np.mean(actual_values)
 
-    # 计算误差（在还原后的尺度上）
-    test_mse = mean_squared_error(np.expm1(log_y[train_end:]), predictions)
-    print(f"滚动预测测试集MSE: {test_mse}")
+    def smape(y_true, y_pred):
+        return np.mean(2 * np.abs(y_pred - y_true) / (np.abs(y_pred) + np.abs(y_true))) * 100
+
+    # 计算 RMSE
+    mae = np.mean(np.abs(actual_values - predicted_values))
+    mae_percentage = (mae / mean_actual) * 100
+    rmse = np.sqrt(np.mean((actual_values - predicted_values) ** 2))
+    smape_value = smape(actual_values, predicted_values)
+    
+    # 计算 R²
+    weights = np.where(actual_values > 0, 1, 0.1)  # 为非零销量天数赋予更高权重
+    weighted_r2 = r2_score(actual_values, predicted_values, sample_weight=weights)
+
+    r2_log = r2_score(np.log1p(actual_values), np.log1p(predicted_values))
+
+    # 打印并保存评估结果
+    print(f"RMSE: {rmse}")
+    print(f"MAE: {mae}")
+    print(f"MAE%: {mae_percentage}")
+    print(f"SMAPE: {smape_value}")
+    print(f"R²: {weighted_r2}")
+    print(f"R² (log): {r2_log}")
 
     # 保存模型参数和误差信息
     model_results.append({
@@ -204,7 +257,9 @@ for _, row in unique_groups.iterrows():
         'm': auto_model.seasonal_order[3],
         'AIC': auto_model.aic(),
         'BIC': auto_model.bic(),
-        '测试集MSE': test_mse
+        '测试集RMSE': rmse,
+        '测试集MAE': mae,
+        '测试集R²': weighted_r2
     })
 
     # 保存预测结果
