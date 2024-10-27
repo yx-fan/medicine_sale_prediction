@@ -2,9 +2,11 @@ import pandas as pd
 import numpy as np
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_percentage_error, mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
+from sklearn.model_selection import GridSearchCV
 import pmdarima as pm
 import argparse
 
@@ -12,25 +14,34 @@ sparsity_threshold = 0.2
 min_weeks = 65
 font = FontProperties(fname='/System/Library/Fonts/STHeiti Light.ttc')  # 设置中文字体
 
-
 def is_model_ok(model_summary):
     # 将 Summary 对象转换为字符串
     print(model_summary)
     summary_text = model_summary.as_text()
+
+    # 解析 summary 文本，找到异常情况
     if 'nan' in summary_text or '-inf' in summary_text:
         print("存在 nan 或 -inf")
         return False
     return True
 
+# 定义超参数网格
+#param_grid = {
+#    'n_estimators': [100, 200, 300],
+#    'max_depth': [5, 10, 20, None],
+#    'min_samples_split': [2, 10, 20],
+#    'min_samples_leaf': [1, 5, 10],
+#    'max_features': ['auto', 'sqrt', 'log2'],
+#    'bootstrap': [True, False]
+#}
 
 # 添加命令行参数
 parser = argparse.ArgumentParser(description='SARIMAX model with specific start date for training')
-parser.add_argument('--start_date', type=str, required=True,
-                    help='The start date from which to include data for training (format: YYYY-MM-DD)')
+parser.add_argument('--start_date', type=str, required=True, help='The start date from which to include data for training (format: YYYY-MM-DD)')
 args = parser.parse_args()
 start_date_filter = pd.to_datetime(args.start_date)
 
-df = pd.read_csv('final_combined_df.csv')  # 读取数据
+df = pd.read_csv('final_combined_df.csv') # 读取数据
 
 # 确保日期格式正确
 df['start_date'] = pd.to_datetime(df['start_date'])
@@ -42,8 +53,8 @@ df = df[df.index >= start_date_filter]
 print(f"训练数据从 {start_date_filter} 开始")
 
 unique_groups = df.groupby(['药品名称', '厂家']).size().reset_index(name='count')  # 获取唯一的 药品名称 + 厂家 组合
-model_results = []  # 用于保存模型参数和误差信息的表格
-all_results = pd.DataFrame()  # 遍历每个 药品名称 + 厂家 组合
+model_results = []   # 用于保存模型参数和误差信息的表格
+all_results = pd.DataFrame()   # 遍历每个 药品名称 + 厂家 组合
 
 for _, row in unique_groups.iterrows():
     drug_name = row['药品名称']
@@ -89,7 +100,7 @@ for _, row in unique_groups.iterrows():
                 [f'avg_6_period_sales_{other_factory}' for other_factory in other_factories['厂家'].unique()]
     exog = group_data[exog_cols]
 
-    # 初始化模型，使用前 min_weeks 的数据进行初始训练
+    # 使用初始训练集数据来训练和预测
     train_end = min_weeks
     history_y = log_y[:train_end]  # 使用 log_y
     history_exog = exog[:train_end]
@@ -125,43 +136,14 @@ for _, row in unique_groups.iterrows():
     plt.ylabel('减少数量', fontproperties=font)
     plt.title(f'SARIMAX 预测 vs 实际值 - {drug_name} + {factory_name}', fontproperties=font)
     plt.legend(prop=font)
-    plt.show()
-
-    # 计算 RMSE
-    mae = np.mean(np.abs(actual_values - predicted_values))
-    rmse = np.sqrt(np.mean((actual_values - predicted_values) ** 2))
-
-
-    def smape(y_true, y_pred):
-        return np.mean(2 * np.abs(y_pred - y_true) / (np.abs(y_pred) + np.abs(y_true))) * 100
-
-
-    smape_value = smape(actual_values, predicted_values)
-    weighted_r2 = r2_score(actual_values, predicted_values)
-
-    print(f"RMSE: {rmse}")
-    print(f"MAE: {mae}")
-    print(f"SMAPE: {smape_value}")
-    print(f"R²: {weighted_r2}")
-
-    # 保存模型参数和误差信息
-    model_results.append({
-        '药品名称': drug_name,
-        '厂家': factory_name,
-        'p': auto_model.order[0],
-        'd': auto_model.order[1],
-        'q': auto_model.order[2],
-        'P': auto_model.seasonal_order[0],
-        'D': auto_model.seasonal_order[1],
-        'Q': auto_model.seasonal_order[2],
-        'm': auto_model.seasonal_order[3],
-        'AIC': auto_model.aic(),
-        'BIC': auto_model.bic(),
-        '测试集RMSE': rmse,
-        '测试集MAE': mae,
-        '测试集R²': weighted_r2
-    })
+    # 显示图表3秒
+    plt.pause(3)
+    # 自动关闭图表
+    plt.close()
 
 # 保存模型参数和误差到文件
 model_results_df = pd.DataFrame(model_results)
 model_results_df.to_csv('model_results.csv', index=False)
+
+# 最后保存所有预测结果到一个文件
+all_results.to_csv('all_predicted_results.csv', index=False)
