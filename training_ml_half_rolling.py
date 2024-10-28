@@ -10,10 +10,11 @@ from sklearn.model_selection import GridSearchCV
 import pmdarima as pm
 import argparse
 
-sparsity_threshold = 0.5
-min_weeks = 65
+sparsity_threshold = 0.7     # 设置稀疏数据阈值
+min_weeks = 65    # 定义最小周数
 font = FontProperties(fname='/System/Library/Fonts/STHeiti Light.ttc')  # 设置中文字体
 
+# 定义函数，检查模型是否正常
 def is_model_ok(model_summary):
     print(model_summary)
     summary_text = model_summary.as_text()
@@ -28,7 +29,8 @@ parser.add_argument('--start_date', type=str, required=True, help='The start dat
 args = parser.parse_args()
 start_date_filter = pd.to_datetime(args.start_date)
 
-df = pd.read_csv('final_combined_df.csv')  # 读取数据
+# 读取数据
+df = pd.read_csv('final_combined_df.csv') 
 
 # 确保日期格式正确
 df['start_date'] = pd.to_datetime(df['start_date'])
@@ -39,25 +41,30 @@ df = df.sort_values('start_date')
 df = df[df.index >= start_date_filter]
 print(f"训练数据从 {start_date_filter} 开始")
 
+# 设置新表格，用于保存模型参数和误差信息
 unique_groups = df.groupby(['药品名称', '厂家']).size().reset_index(name='count')
 model_results = []   # 用于保存模型参数和误差信息的表格
 all_results = pd.DataFrame()
 
+# 遍历每个 药品名称 + 厂家 组合
 for _, row in unique_groups.iterrows():
     drug_name = row['药品名称']
     factory_name = row['厂家']
     print(f"当前处理的药品名称: {drug_name}, 厂家: {factory_name}")
     group_data = df[(df['药品名称'] == drug_name) & (df['厂家'] == factory_name)].copy()
 
+    # 如果数据不足 65 周，则跳过
     if len(group_data) < min_weeks:
         print(f"跳过 {drug_name} + {factory_name}，数据不足 {min_weeks} 周")
         continue
 
+    # 如果销量数据过于稀疏，则跳过
     non_zero_ratio = (group_data['减少数量'] != 0).mean()
-    if non_zero_ratio < sparsity_threshold:
-        print(f"跳过 {drug_name} + {factory_name}，销量数据过于稀疏（非零值比例: {non_zero_ratio:.2f}）")
+    if non_zero_ratio < sparsity_threshold: # 如果非零值比例小于阈值，则跳过
+        print(f"跳过 {drug_name} + {factory_name}，销量数据过于稀疏（非零值比例: {non_zero_ratio:.2f})")
         continue
 
+    # 定义目标变量和外生变量
     y = group_data['减少数量']
     log_y = np.log1p(y)
 
@@ -66,60 +73,77 @@ for _, row in unique_groups.iterrows():
     consecutive_zeros = (recent_data['减少数量'] == 0).astype(int).groupby(recent_data['减少数量'].ne(0).cumsum()).cumsum()
     use_rolling_forecast = (consecutive_zeros >= 4).any()
 
+    # 获取同一药品下的其他药厂数据，并创建外生变量previous_sales_{other_factory}和avg_6_period_sales_{other_factory}
     other_factories = df[(df['药品名称'] == drug_name) & (df['厂家'] != factory_name)]
-    for other_factory in other_factories['厂家'].unique():
+    for other_factory in other_factories['厂家'].unique():   # 遍历每个其他药厂，计算其上一期销量和上六期平均销量
         other_factory_sales = other_factories[other_factories['厂家'] == other_factory].copy()
         other_factory_sales[f'previous_sales_{other_factory}'] = other_factory_sales['减少数量'].shift(1)
-        other_factory_sales[f'avg_6_period_sales_{other_factory}'] = other_factory_sales['减少数量'].rolling(window=6,
-                                                                                                         min_periods=1).mean().shift(
-            1)
-        group_data = pd.merge(group_data, other_factory_sales[
-            [f'previous_sales_{other_factory}', f'avg_6_period_sales_{other_factory}']],
+        other_factory_sales[f'avg_6_period_sales_{other_factory}'] = other_factory_sales['减少数量'].rolling(window=6, min_periods=1).mean().shift(1)
+        group_data = pd.merge(group_data, other_factory_sales[[f'previous_sales_{other_factory}', f'avg_6_period_sales_{other_factory}']],
                               left_index=True, right_index=True, how='left')
-    group_data.fillna(0, inplace=True)
+    group_data.fillna(0, inplace=True)  # 填充缺失值
 
+    # 提取月份信息
+    group_data['month'] = group_data.index.month
+    group_data = pd.get_dummies(group_data, columns=['month'], prefix='month') 
+
+    # 将所有 month 列转换为整数类型（0 和 1）
+    month_cols = [col for col in group_data.columns if col.startswith('month_')]
+    group_data[month_cols] = group_data[month_cols].astype(int)
+
+    # 对除期初金额占比之外的外生变量进行log处理
     for other_factory in other_factories['厂家'].unique():
         group_data[f'previous_sales_{other_factory}'] = np.log1p(group_data[f'previous_sales_{other_factory}'])
         group_data[f'avg_6_period_sales_{other_factory}'] = np.log1p(group_data[f'avg_6_period_sales_{other_factory}'])
     group_data['previous_增加数量'] = np.log1p(group_data['previous_增加数量'])
 
-    exog_cols = ['期初金额占比', 'previous_增加数量'] + [f'previous_sales_{other_factory}' for other_factory in
-                                               other_factories['厂家'].unique()] + \
-                [f'avg_6_period_sales_{other_factory}' for other_factory in other_factories['厂家'].unique()]
+    # 构建外生变量
+    exog_cols = ['期初金额占比', 'previous_增加数量'] + [f'previous_sales_{other_factory}' for other_factory in other_factories['厂家'].unique()] + \
+                [f'avg_6_period_sales_{other_factory}' for other_factory in other_factories['厂家'].unique()] + month_cols
+    print("===================== 外生变量 =====================")
+    print(exog_cols)
     exog = group_data[exog_cols]
 
+    # 初始化模型，使用前 min_weeks 的数据进行初始训练
     train_end = min_weeks
-    history_y = log_y[:train_end]
+    history_y = log_y[:train_end]  # 使用 log_y
     history_exog = exog[:train_end]
+    print("===================== 历史减少数量 =====================")
     print(history_y.head())
+    print("===================== 历史外生变量 =====================")
     print(history_exog.head())
 
-    auto_model = pm.auto_arima(history_y, exogenous=history_exog, seasonal=True, m=52, max_d=2, max_p=3, max_q=3, D=1,
-                               stepwise=True, trace=True)
+    # 使用 pmdarima 进行自动模型选择
+    print("===================== 自动模型选择 =====================")
+    auto_model = pm.auto_arima(history_y, exogenous=history_exog, seasonal=True, m=52, max_d=2, max_p=3, max_q=3, D=1, stepwise=True, trace=True)
     summary = auto_model.summary()
 
+    # 检查模型是否正常
     if is_model_ok(summary):
         print(f"自动选取的模型: {drug_name} + {factory_name}")
-        print(summary)
     else:
         print(f"自动选取的模型存在异常: {drug_name} + {factory_name}")
         continue
 
-    log_y = log_y.reset_index(drop=True)
-    exog = exog.reset_index(drop=True)
+    # 重置索引，确保索引正确
+    # log_y = log_y.reset_index(drop=True)
+    # exog = exog.reset_index(drop=True)
+    residuals = []
+    # 使用 SARIMAX 对训练集进行完整预测，获取残差
+    for t in range(train_end):
+        exog_current = exog.iloc[t: t+1].fillna(0)
+        next_pred_log = auto_model.predict(n_periods=1, exogenous=exog_current).item()
+        actual_y_at_t = log_y.iloc[t]
+        auto_model.update([actual_y_at_t], exogenous=exog_current)  # 更新 SARIMAX 模型
+        residual = actual_y_at_t - next_pred_log  # 计算残差
+        residuals.append(residual)
 
+    # 进行滚动预测
     if use_rolling_forecast:
         print(f"使用滚动预测: {drug_name} + {factory_name}")
         log_predictions = []
-        residuals = []
-
-        for t in range(train_end):
-            exog_current = exog.iloc[t: t + 1].fillna(0)
-            next_pred_log = auto_model.predict(n_periods=1, exogenous=exog_current).item()
-            actual_value = log_y.iloc[t]
-            residual = actual_value - next_pred_log
-            residuals.append(residual)
-
+    
+        # 使用历史残差和历史外生变量训练机器学习模型
         shifted_log_y = log_y.shift(1).fillna(0)
         history_exog_with_y = history_exog.copy()
         history_exog_with_y['shifted_log_y'] = shifted_log_y[:train_end]
@@ -159,6 +183,9 @@ for _, row in unique_groups.iterrows():
 
             final_pred_log = max(next_pred_log + smoothed_residual * scaling_factor, 0)
             final_pred_log = min(final_pred_log, 1.5 * next_pred_log)
+            print(f"Final prediction: {final_pred_log}")
+            print(f"Next prediction: {next_pred_log}")
+            print(f"Predicted residual: {final_pred_log - next_pred_log}")
 
             if np.isnan(final_pred_log):
                 final_pred_log = 0
@@ -168,8 +195,9 @@ for _, row in unique_groups.iterrows():
             residual = actual_value - next_pred_log
             residuals.append(residual)
 
-            history_y = log_y[max(0, t - min_weeks):t + 1]
-            history_exog = exog[max(0, t - min_weeks):t + 1]
+            # 滚动窗口：将真实的观测值加入训练集
+            history_y = log_y[:t+1]
+            history_exog = exog[:t+1]
 
             auto_model.update(history_y, exogenous=history_exog)
             history_exog_with_y = history_exog.copy()
@@ -177,16 +205,37 @@ for _, row in unique_groups.iterrows():
             history_exog_with_y['shifted_log_y'] = shifted_log_y[:t + 1]
             ml_model.fit(history_exog_with_y, residuals[-len(history_exog):])
 
-        predictions = np.expm1(log_predictions)
-        actual_values = np.expm1(log_y[train_end:])
-        predicted_values = predictions
-        mean_actual = np.mean(actual_values)
+
     else:
+        # 使用静态预测
         print(f"使用静态预测: {drug_name} + {factory_name}")
-        predictions = auto_model.predict_in_sample(exogenous=exog)
-        actual_values = np.expm1(log_y)
-        predicted_values = np.expm1(predictions)
-        mean_actual = np.mean(actual_values)
+
+        # 初始化保存预测结果的列表
+        log_predictions = []
+
+        # 遍历测试集的每个时间点，逐个进行预测
+        for t in range(train_end, len(log_y)):
+            exog_current = exog.iloc[t: t + 1].fillna(0)  # 取出当前时间点的外生变量
+
+            try:
+                # 使用模型预测当前时刻
+                next_pred_log = auto_model.predict(n_periods=1, exogenous=exog_current).item()
+                
+                # 更新模型状态，类似滚动更新，但不包含新数据到训练集，仅更新模型状态
+                actual_y_at_t = log_y.iloc[t]
+                auto_model.update([actual_y_at_t], exogenous=exog_current)
+            except KeyError as e:
+                print(f"索引错误: {e}, 当前 t 值: {t}, exog.iloc[t:t+1] 出错")
+                continue
+
+            # 将预测结果保存到列表中
+            log_predictions.append(next_pred_log)
+
+
+    predictions = np.expm1(log_predictions)
+    actual_values = np.expm1(log_y[train_end:])
+    predicted_values = predictions
+    mean_actual = np.mean(actual_values)
 
     def smape(y_true, y_pred):
         return np.mean(2 * np.abs(y_pred - y_true) / (np.abs(y_pred) + np.abs(y_true))) * 100
