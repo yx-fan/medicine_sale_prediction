@@ -9,6 +9,7 @@ from matplotlib.font_manager import FontProperties
 from sklearn.model_selection import GridSearchCV
 import pmdarima as pm
 import argparse
+import os
 
 sparsity_threshold = 0.7     # 设置稀疏数据阈值
 min_weeks = 65    # 定义最小周数
@@ -26,8 +27,10 @@ def is_model_ok(model_summary):
 # 添加命令行参数
 parser = argparse.ArgumentParser(description='SARIMAX model with specific start date for training')
 parser.add_argument('--start_date', type=str, required=True, help='The start date from which to include data for training (format: YYYY-MM-DD)')
+parser.add_argument('--end_date', type=str, required=True, help='The end date until which to include data for training (format: YYYY-MM-DD)')
 args = parser.parse_args()
 start_date_filter = pd.to_datetime(args.start_date)
+end_date_filter = pd.to_datetime(args.end_date)
 
 # 读取数据
 df = pd.read_csv('final_combined_df.csv') 
@@ -37,9 +40,9 @@ df['start_date'] = pd.to_datetime(df['start_date'])
 df = df.set_index('start_date')
 df = df.sort_values('start_date')
 
-# 根据指定的start_date进行过滤
-df = df[df.index >= start_date_filter]
-print(f"训练数据从 {start_date_filter} 开始")
+# 根据指定的 start_date 和 end_date 进行过滤
+df = df[(df.index >= start_date_filter) & (df.index <= end_date_filter)]
+print(f"训练数据从 {start_date_filter} 到 {end_date_filter}")
 
 # 设置新表格，用于保存模型参数和误差信息
 unique_groups = df.groupby(['药品名称', '厂家']).size().reset_index(name='count')
@@ -151,6 +154,11 @@ for _, row in unique_groups.iterrows():
         ml_model.fit(history_exog_with_y, residuals)
 
         for t in range(train_end, len(log_y)):
+
+            if log_y.index[t] > end_date_filter:
+                print(f"已达到 end_date_filter: {end_date_filter}, 停止预测")
+                break
+
             if t >= len(exog):
                 break
             exog_current = exog.iloc[t: t + 1].fillna(0)
@@ -215,6 +223,9 @@ for _, row in unique_groups.iterrows():
 
         # 遍历测试集的每个时间点，逐个进行预测
         for t in range(train_end, len(log_y)):
+            if log_y.index[t] > end_date_filter:
+                print(f"已达到 end_date_filter: {end_date_filter}, 停止预测")
+                break
             exog_current = exog.iloc[t: t + 1].fillna(0)  # 取出当前时间点的外生变量
 
             try:
@@ -269,7 +280,9 @@ for _, row in unique_groups.iterrows():
         'BIC': auto_model.bic(),
         '测试集RMSE': rmse,
         '测试集MAE': mae,
-        '测试集R²': weighted_r2
+        '测试集R²': weighted_r2,
+        '测试集MAE%': mae_percentage,
+        '测试集SMAPE': smape_value,
     })
 
     if '预测类型' not in group_data.columns:
@@ -282,6 +295,10 @@ for _, row in unique_groups.iterrows():
 
     all_results = pd.concat([all_results, group_data])
 
+    # Create a directory to store the plots if it doesn't exist
+    plot_dir = "model_plots"
+    os.makedirs(plot_dir, exist_ok=True)
+
     plt.figure(figsize=(10, 6))
     plt.plot(group_data.index, group_data['减少数量'], label='实际减少数量')
     plt.plot(group_data.index[train_end:], predictions, label='滚动预测' if use_rolling_forecast else '静态预测', linestyle='--')
@@ -290,7 +307,14 @@ for _, row in unique_groups.iterrows():
     plt.ylabel('减少数量', fontproperties=font)
     plt.title(f'SARIMAX 滚动预测 vs 实际值 - {drug_name} + {factory_name}', fontproperties=font)
     plt.legend(prop=font)
-    plt.pause(3)
+
+    # Save the plot to the specified directory
+    safe_drug_name = drug_name.replace("/", "_")
+    safe_factory_name = factory_name.replace("/", "_")
+
+    plot_filename = f"SARIMAX_Prediction_{safe_drug_name}_{safe_factory_name}.png"
+    plt.savefig(os.path.join(plot_dir, plot_filename), format='png', dpi=300, bbox_inches='tight')
+
     plt.close()
 
 model_results_df = pd.DataFrame(model_results)
