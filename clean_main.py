@@ -5,6 +5,7 @@ from clean_data.process_data import process_data
 from clean_data.clean_data import clean_data
 from clean_data.aggregate_data import aggregate_data
 from clean_data.finalize_data import finalize_data
+from clean_data.filter_with_guotan import filter_with_guotan
 
 # Step 1: Load files
 folder_path = './dataset'
@@ -44,3 +45,6 @@ combined_df = finalize_data(combined_df)
 # Save to CSV
 combined_df.to_csv('final_combined_df.csv', index=False)
 print("Data cleaning and processing completed. Output saved to 'final_combined_df.csv'.")
+
+# Step 6: Filter with Guotan
+filter_with_guotan()
