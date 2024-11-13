@@ -17,7 +17,10 @@ def filter_with_guotan():
     # Filter main_df to keep only rows where 药品_厂家 exists in guotanyaopin_df
     filtered_main_df = main_df[main_df['药品_厂家'].isin(guotanyaopin_df['药品_厂家'])]
 
+    # Drop the 药品_厂家 column after filtering
+    filtered_main_df = filtered_main_df.drop(columns=['药品_厂家'])
+
     # Save the filtered data for further modeling
     filtered_main_df.to_csv('filtered_final_combined_df.csv', index=False)
-    print("Filtered data saved to 'filtered_final_combined_df.csv'")
+    print("Filtered data saved to 'filtered_final_combined_df.csv'.")
 
