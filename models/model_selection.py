@@ -16,6 +16,13 @@ def train_sarimax_model(history_y, history_exog):
         max_d=2, max_p=3, max_q=3, D=1, stepwise=True, trace=True
     )
 
+def train_sarimax_model_month(history_y, history_exog):
+    return pm.auto_arima(
+        history_y, exogenous=history_exog, seasonal=True, m=12,
+        max_d=2, max_p=3, max_q=3, D=1, stepwise=True, trace=True
+    )
+
+
 def calculate_residuals(log_y, exog, auto_model, train_end):
     residuals = []
     for t in range(train_end):
