@@ -21,6 +21,7 @@ end_date_filter = pd.to_datetime(args.end_date)
 df = load_data('updated_monthly_final_combined_df.csv', start_date_filter, end_date_filter)
 df['药品名称'] = df['药品名称'].str.replace('/', '_')
 
+
 if df.index.name == 'start_date':
     df = df.reset_index()
 
@@ -30,7 +31,7 @@ if 'start_date' not in df.columns:
     exit(1)
 
 df = df.sort_values(by=['药品名称', '厂家', 'start_date'])
-print(df)
+
 
 # 设置每组的起始时间为第一个非零数据的日期
 def get_first_nonzero_date(group):
@@ -39,6 +40,7 @@ def get_first_nonzero_date(group):
     return group
 
 df = df.groupby(['药品名称', '厂家'], group_keys=False).apply(get_first_nonzero_date)
+df.to_excel("output.xlsx", index=False)
 
 # 准备保存模型结果
 unique_groups = df.groupby(['药品名称', '厂家']).size().reset_index(name='count')
