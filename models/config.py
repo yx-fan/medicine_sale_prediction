@@ -1,4 +1,4 @@
-sparsity_threshold = 0.9
+sparsity_threshold = 0.8
 min_weeks = 70
 font_path = '/System/Library/Fonts/STHeiti Light.ttc'
 plot_dir = "model_plots"

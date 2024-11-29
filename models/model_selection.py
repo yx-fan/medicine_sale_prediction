@@ -19,7 +19,7 @@ def train_sarimax_model(history_y, history_exog):
 def train_sarimax_model_month(history_y, history_exog):
     return pm.auto_arima(
         history_y, exogenous=history_exog, seasonal=True, m=12,  # 将 m 改为 12
-        max_d=1, max_p=3, max_q=3, D=1, stepwise=True, trace=True
+        max_d=2, max_p=3, max_q=3, D=1, stepwise=True, trace=True
     )
 
 
