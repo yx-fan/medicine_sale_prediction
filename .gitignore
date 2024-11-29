@@ -21,3 +21,5 @@ prophet_rolling_model_results.csv
 
 model_plots/
 model_plots_pr/
+
+.DS_Store
