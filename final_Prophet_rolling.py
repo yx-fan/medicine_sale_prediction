@@ -74,7 +74,7 @@ df = df.groupby(['药品名称', '厂家'], group_keys=False).apply(get_first_no
 
 # Prepare to store model results
 unique_groups = df.groupby(['药品名称', '厂家']).size().reset_index(name='count')
-results_file = 'rolling_model_results.csv'
+results_file = 'prophet_rolling_model_results.csv'
 results_columns = ['药品名称', '厂家', 'RMSE', 'MAE', 'SMAPE', 'R²']
 pd.DataFrame(columns=results_columns).to_csv(results_file, index=False)
 
