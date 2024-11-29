@@ -12,15 +12,21 @@ def plot_predictions(group_data, predictions, drug_name, factory_name, font_path
     plt.title(f'SARIMAX Forecast vs Actual - {drug_name} + {factory_name}', fontproperties=font)
     plt.legend(prop=font)
 
+    # Replace invalid characters (e.g., "/") in the drug and factory names
+    safe_drug_name = drug_name.replace('/', '_')
+    safe_factory_name = factory_name.replace('/', '_')
+
     # Set default plot directory to one level up, in the 'pic' folder
     if plot_dir is None:
         plot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'pic')
     else:
         plot_dir = os.path.abspath(plot_dir)
     
-    # Save the plot to the specified directory
+    # Create the plot directory if it doesn't exist
     os.makedirs(plot_dir, exist_ok=True)
-    plot_path = os.path.join(plot_dir, f"SARIMAX_Prediction_{drug_name}_{factory_name}.png")
+
+    # Save the plot to the specified directory with safe file names
+    plot_path = os.path.join(plot_dir, f"SARIMAX_Prediction_{safe_drug_name}_{safe_factory_name}.png")
     plt.savefig(plot_path, format='png', dpi=300)
     print(f"Plot saved to {plot_path}")
 
