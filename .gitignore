@@ -23,3 +23,5 @@ sarimax_model_results.csv
 model_plots/
 model_plots_pr/
 model_plots_sarimax/
+
+.DS_Store
