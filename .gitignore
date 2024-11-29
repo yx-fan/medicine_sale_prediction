@@ -14,3 +14,8 @@ __pycache__/
 *.env
 
 dataset
+
+xgboost_best_prediction_results_v4.csv
+xgboost_best_model_results_v4.csv
+
+model_plots/
