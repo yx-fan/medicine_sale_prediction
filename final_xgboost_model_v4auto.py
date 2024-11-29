@@ -33,7 +33,7 @@ def get_first_nonzero_date(group):
     return group
 
 df = df.groupby(['药品名称', '厂家'], group_keys=False, as_index=False).apply(get_first_nonzero_date)
-print(df)
+
 # Prepare to store results
 unique_groups = df.groupby(['药品名称', '厂家']).size().reset_index(name='count')
 results_file = 'xgboost_best_model_results_v4.csv'
@@ -83,6 +83,7 @@ for _, row in unique_groups.iterrows():
     best_r2 = float('-inf')
     best_params = None
     best_predictions = None
+    r2_results = []
 
     # Perform grid search
     for n_estimators in param_grid['n_estimators']:
@@ -123,10 +124,17 @@ for _, row in unique_groups.iterrows():
                                 r2 = r2_score(
                                     rolling_actuals[valid_indices], rolling_predictions[valid_indices]
                                 )
+                                r2_results.append({'Params': params, 'R²': r2})
                                 if r2 > best_r2:
                                     best_r2 = r2
                                     best_params = params
                                     best_predictions = rolling_predictions
+
+    # Print R² results for each parameter combination
+    print(f"R² results for {drug_name} + {factory_name}:")
+    r2_results_df = pd.DataFrame(r2_results)
+    print(r2_results_df)
+    r2_results_df.to_excel("r2_results_df.xlsx", index=False)
 
     # Save results
     if best_predictions is not None:
@@ -154,8 +162,9 @@ for _, row in unique_groups.iterrows():
             }
             for i in range(initial_train_size, len(group_data))
         ]
-        print("00000000")
-        print(prediction_results)
         pd.DataFrame(prediction_results).to_csv(prediction_file, mode='a', header=False, index=False)
+
+    # Plot predictions
+    plot_predictions(group_data.set_index('ds'), rolling_predictions, drug_name, factory_name, configmonth.font_path, "model_plots_xgv4auto")
 
 print("All results have been incrementally saved.")
