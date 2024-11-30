@@ -19,6 +19,7 @@ xgboost_best_prediction_results_v4.csv
 xgboost_best_model_results_v4.csv
 prophet_rolling_model_results.csv
 sarimax_model_results.csv
+advanced_sarimax_model_results.csv
 
 model_plots/
 model_plots_pr/

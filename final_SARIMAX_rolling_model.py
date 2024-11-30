@@ -7,118 +7,152 @@ from models.data_loader import load_data
 from models.model_selection import train_sarimax_model_month
 from models.metrics import calculate_metrics
 from models.visualization import plot_predictions
+from scipy import stats
 
-# Handle outliers
-def deal_with_outlier(df):
-    """
-    Process outliers in the '减少数量' column by grouping by '药品名称'和'厂家'.
-    Replace values exceeding 3x or below 0.3333x of the group mean with the mean.
-    """
-    def replace_outliers(group):
-        mean_value = group['减少数量'].mean()
-        upper_limit = mean_value * 3
-        lower_limit = mean_value * 0.3333
-        group['减少数量'] = np.where(
-            (group['减少数量'] > upper_limit) | (group['减少数量'] < lower_limit),
-            mean_value,
-            group['减少数量']
+def advanced_outlier_detection(df):
+    def detect_and_handle_outliers(group):
+        z_scores = np.abs(stats.zscore(group['减少数量']))
+        Q1 = group['减少数量'].quantile(0.25)
+        Q3 = group['减少数量'].quantile(0.75)
+        IQR = Q3 - Q1
+        
+        outlier_mask = (
+            (z_scores > 3) |
+            (group['减少数量'] < (Q1 - 1.5 * IQR)) |
+            (group['减少数量'] > (Q3 + 1.5 * IQR))
         )
+        
+        lower_bound = group['减少数量'].quantile(0.05)
+        upper_bound = group['减少数量'].quantile(0.95)
+        
+        group.loc[group['减少数量'] < lower_bound, '减少数量'] = lower_bound
+        group.loc[group['减少数量'] > upper_bound, '减少数量'] = upper_bound
+        
         return group
 
-    df = df.groupby(['药品名称', '厂家'], group_keys=False).apply(replace_outliers)
+    df = df.groupby(['药品名称', '厂家'], group_keys=False).apply(detect_and_handle_outliers)
     return df
 
-# Ensure each group starts from the first non-zero data point
-def get_first_nonzero_date(group):
-    first_nonzero_date = group.loc[group['减少数量'] > 0, 'start_date'].min()
-    group = group[group['start_date'] >= first_nonzero_date]
-    return group
+def enhance_feature_engineering(df):
+    df = df.sort_index()
 
-# Command-line arguments
-parser = argparse.ArgumentParser(description='SARIMAX model with a specific training start date')
-parser.add_argument('--start_date', type=str, required=True, help='Start date for training (YYYY-MM-DD)')
-parser.add_argument('--end_date', type=str, required=True, help='End date for training (YYYY-MM-DD)')
-args = parser.parse_args()
+    for lag in [1, 3, 6, 12]:
+        df[f'lag_{lag}'] = df['减少数量'].shift(lag)
+    
+    window_sizes = [3, 6, 12]
+    for window in window_sizes:
+        df[f'rolling_mean_{window}'] = df['减少数量'].rolling(window=window, min_periods=1).mean()
+        df[f'rolling_std_{window}'] = df['减少数量'].rolling(window=window, min_periods=1).std()
+    
+    df['ewma_3'] = df['减少数量'].ewm(span=3, adjust=False).mean()
+    df['pct_change_1'] = df['减少数量'].pct_change()
+    df['pct_change_3'] = df['减少数量'].pct_change(periods=3)
+    df['trend_strength'] = df['减少数量'].diff().abs().rolling(window=6).mean()
+    df['volatility'] = df['减少数量'].rolling(window=6).std()
+    df['month'] = df.index.month
+    df['quarter'] = df.index.quarter
+    df['month_sin'] = np.sin(df['month'] * (2 * np.pi / 12))
+    df['month_cos'] = np.cos(df['month'] * (2 * np.pi / 12))
+    
+    df.fillna(method='bfill', inplace=True)
+    df.fillna(0, inplace=True)
+    
+    return df
 
-start_date_filter = pd.to_datetime(args.start_date)
-end_date_filter = pd.to_datetime(args.end_date)
+def main():
+    parser = argparse.ArgumentParser(description='Advanced SARIMAX Prediction with Enhanced Features')
+    parser.add_argument('--start_date', type=str, required=True, help='Start date for training (YYYY-MM-DD)')
+    parser.add_argument('--end_date', type=str, required=True, help='End date for training (YYYY-MM-DD)')
+    args = parser.parse_args()
 
-# Load and filter data
-df = load_data('updated_monthly_final_combined_df.csv', start_date_filter, end_date_filter)
+    start_date_filter = pd.to_datetime(args.start_date)
+    end_date_filter = pd.to_datetime(args.end_date)
 
-# Prepare to store model results
-unique_groups = df.groupby(['药品名称', '厂家']).size().reset_index(name='count')
-results_file = 'sarimax_model_results.csv'
-results_columns = ['药品名称', '厂家', 'RMSE', 'MAE', 'SMAPE', 'R²']
-pd.DataFrame(columns=results_columns).to_csv(results_file, index=False)
+    df = load_data('updated_monthly_final_combined_df.csv', start_date_filter, end_date_filter)
 
-# Process each group (药品名称 + 厂家)
-for _, row in unique_groups.iterrows():
-    drug_name = row['药品名称']
-    factory_name = row['厂家']
-    group_data = df[(df['药品名称'] == drug_name) & (df['厂家'] == factory_name)].copy()
+    if df.empty:
+        raise ValueError("The loaded data is empty. Please check the input file and date range.")
+    
+    unique_groups = df.groupby(['药品名称', '厂家']).size().reset_index(name='count')
+    results_file = 'advanced_sarimax_model_results.csv'
+    results_columns = ['药品名称', '厂家', 'RMSE', 'MAE', 'SMAPE', 'R²']
+    pd.DataFrame(columns=results_columns).to_csv(results_file, index=False)
 
-    group_data = group_data.reset_index().rename(columns={'index': 'start_date'})
-    # Ensure each group starts from the first non-zero date
-    group_data = get_first_nonzero_date(group_data)
-    group_data = group_data.set_index('start_date')
+    for _, row in unique_groups.iterrows():
+        drug_name = row['药品名称']
+        factory_name = row['厂家']
+        group_data = df[(df['药品名称'] == drug_name) & (df['厂家'] == factory_name)].copy()
 
-    # Check minimum month requirement
-    if len(group_data) < config.min_months:
-        print(f"Skipping {drug_name} + {factory_name}: Insufficient data")
-        continue
+        group_data = group_data.reset_index().rename(columns={'index': 'start_date'})
+        group_data = group_data[group_data['减少数量'] > 0].set_index('start_date')
 
-    # Check sparsity requirement
-    non_zero_ratio = (group_data['减少数量'] != 0).mean()
-    if non_zero_ratio < config.sparsity_threshold:
-        print(f"Skipping {drug_name} + {factory_name}: Data too sparse (non-zero ratio: {non_zero_ratio:.2f})")
-        continue
+        if len(group_data) < config.min_months or group_data['减少数量'].sum() == 0:
+            print(f"Skipping {drug_name} + {factory_name}: insufficient or sparse data.")
+            continue
 
-    # Process outliers
-    group_data = deal_with_outlier(group_data)
+        non_zero_ratio = (group_data['减少数量'] != 0).mean()
+        if non_zero_ratio < config.sparsity_threshold:
+            print(f"Skipping {drug_name} + {factory_name}: Data too sparse (non-zero ratio: {non_zero_ratio:.2f})")
+            continue
 
-    # Define target variable and exogenous features
-    y = group_data['减少数量']
-    log_y = np.log1p(y)
+        group_data = advanced_outlier_detection(group_data)
+        group_data = enhance_feature_engineering(group_data)
 
-    # No external exogenous variables; only internal lagged data (if needed)
-    exog = None
+        y = group_data['减少数量']
+        log_y = np.log1p(y)
 
-    # Prepare training data
-    train_end = config.min_months
-    history_y = log_y[:train_end]
+        exog_cols = [
+            'lag_1', 'lag_3', 'lag_6', 'lag_12',
+            'rolling_mean_3', 'rolling_mean_6', 'rolling_mean_12',
+            'rolling_std_3', 'rolling_std_6', 'rolling_std_12',
+            'ewma_3', 'pct_change_1', 'pct_change_3',
+            'trend_strength', 'volatility',
+            'month_sin', 'month_cos'
+        ]
+        exog = group_data[exog_cols]
 
-    # Forecast with Rolling SARIMAX
-    predictions = []
-    window_size = config.min_months  # 滚动窗口大小
+        train_end = config.min_months
+        history_y = log_y[:train_end]
+        history_exog = exog[:train_end]
 
-    for t in range(train_end, len(log_y)):
-        # 滚动窗口：更新历史数据（移除最早一期，增加最新一期）
-        history_y = log_y[t - window_size:t]
+        predictions = []
+        adaptive_window = train_end
 
-        # 更新模型：使用滚动窗口中的数据重新拟合模型
-        auto_model = train_sarimax_model_month(history_y, exog)
+        for t in range(train_end, len(log_y)):
+            adaptive_window = max(config.min_months, min(len(log_y), adaptive_window))
+            recent_y = log_y.iloc[t - adaptive_window:t]
+            recent_exog = exog.iloc[t - adaptive_window:t]
 
-        # 预测下一期
-        next_preds_log = auto_model.predict(n_periods=1)
-        predictions.append(next_preds_log[0])
+            if len(recent_y) < config.min_months or recent_exog.empty:
+                print(f"Skipping step at index {t}: insufficient data for training.")
+                continue
 
-    # 转换预测值回原始尺度
-    predictions = np.expm1(predictions)
-    actual_values = np.expm1(log_y[train_end:])
+            try:
+                auto_model = train_sarimax_model_month(recent_y, recent_exog)
+                next_preds_log = auto_model.predict(n_periods=1, exogenous=exog.iloc[t:t+1])
+                predictions.append(next_preds_log.iloc[0])
+            except Exception as e:
+                print(f"Model training failed at step {t} due to: {e}")
+                predictions.append(0)
 
-    # 计算评估指标
-    rmse, mae, smape, r2 = calculate_metrics(actual_values, predictions)
+        if len(predictions) == 0 or len(log_y[train_end:]) == 0:
+            print(f"Skipping metrics calculation for {drug_name} + {factory_name}: insufficient data.")
+            continue
 
-    # Store results for the current group
-    model_result = {
-        '药品名称': drug_name, '厂家': factory_name,
-        'RMSE': rmse, 'MAE': mae, 'SMAPE': smape, 'R²': r2
-    }
-    pd.DataFrame([model_result]).to_csv(results_file, mode='a', header=False, index=False)
-    print(f"Results for {drug_name} + {factory_name} have been appended to '{results_file}'")
+        predictions = np.maximum(np.expm1(predictions), 0)
+        actual_values = np.expm1(log_y[train_end:])
+        rmse, mae, smape, r2 = calculate_metrics(actual_values, predictions)
 
-    # Plot predictions
-    plot_predictions(group_data, predictions, drug_name, factory_name, config.font_path, config.plot_dir_sarimax)
+        model_result = {
+            '药品名称': drug_name, '厂家': factory_name,
+            'RMSE': rmse, 'MAE': mae, 'SMAPE': smape, 'R²': r2
+        }
+        pd.DataFrame([model_result]).to_csv(results_file, mode='a', header=False, index=False)
+        print(f"Results for {drug_name} + {factory_name} appended to '{results_file}'")
 
-print("All results have been incrementally saved to 'model_results.csv'")
+        plot_predictions(group_data, predictions, drug_name, factory_name, config.font_path, config.plot_dir_sarimax)
+
+    print("All results saved to 'advanced_sarimax_model_results.csv'")
+
+if __name__ == '__main__':
+    main()
