@@ -1,0 +1,19 @@
+\contentsline {section}{\numberline {1}Introduction}{2}{section.1}%
+\contentsline {section}{\numberline {2}Methodologies}{2}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Hybrid Forecasting Framework}{2}{subsection.2.1}%
+\contentsline {subsubsection}{\numberline {2.1.1}Data Preprocessing and Feature Engineering}{2}{subsubsection.2.1.1}%
+\contentsline {subsubsection}{\numberline {2.1.2}Rolling Forecasting Mechanism}{2}{subsubsection.2.1.2}%
+\contentsline {subsection}{\numberline {2.2}Model-Specific Configurations}{3}{subsection.2.2}%
+\contentsline {subsubsection}{\numberline {2.2.1}XGBoost}{3}{subsubsection.2.2.1}%
+\contentsline {subsubsection}{\numberline {2.2.2}SARIMAX}{3}{subsubsection.2.2.2}%
+\contentsline {subsubsection}{\numberline {2.2.3}Prophet}{3}{subsubsection.2.2.3}%
+\contentsline {section}{\numberline {3}Experiments}{3}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Experimental Setup}{3}{subsection.3.1}%
+\contentsline {subsubsection}{\numberline {3.1.1}Data Description}{3}{subsubsection.3.1.1}%
+\contentsline {subsubsection}{\numberline {3.1.2}Evaluation Metrics}{3}{subsubsection.3.1.2}%
+\contentsline {subsection}{\numberline {3.2}Experimental Results}{3}{subsection.3.2}%
+\contentsline {subsubsection}{\numberline {3.2.1}Model Performance}{3}{subsubsection.3.2.1}%
+\contentsline {section}{\numberline {4}Discussion and Future Work}{4}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Discussion}{4}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Future Work}{4}{subsection.4.2}%
+\contentsline {section}{\numberline {5}Conclusion}{4}{section.5}%
