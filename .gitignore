@@ -1,3 +1,4 @@
+
 # Ignore virtual environment
 venv/
 
@@ -23,6 +24,7 @@ advanced_sarimax_model_results.csv
 v2_xgboost_best_model_results_v4.csv
 v2_xgboost_best_prediction_results_v4.csv
 final_monthly_combined_df_after_cleaning.csv
+v2_prophet_rolling_model_results.csv
 
 
 model_plots/
