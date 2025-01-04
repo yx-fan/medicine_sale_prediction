@@ -1,0 +1,343 @@
+\documentclass[journal]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+}
+
+\begin{document}
+
+\title{Hybrid Forecasting Models for Drug Inventory Prediction in Hospital Pharmacies}
+
+\author{Yuxin Fan$^{*}$ and Siye Wu$^{\dagger}$ \\
+$^{*}$School of Engineering and Applied Science, University of Pennsylvania, Canada, Toronto \\
+Email: yuxinfan@alumni.upenn.edu \\
+$^{\dagger}$Simon Business School, University of Rochester, Canada, Toronto \\
+Email: april.siyewu@hotmail.com}
+
+\maketitle
+
+\begin{abstract}
+Accurate and efficient drug inventory management is crucial for hospital pharmacies to avoid overstocking, minimize wastage, and ensure continuous patient care. This study proposes a hybrid forecasting framework integrating XGBoost, Prophet, and SARIMAX to improve monthly consumption predictions at the drug-manufacturer level. Through rolling-window forecasting and advanced feature engineering, the proposed approach addresses challenges such as seasonality, trend shifts, and sparse data. Experimental results demonstrate significant improvements in prediction accuracy and robustness across diverse drug consumption scenarios.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Drug Inventory, Forecasting Models, XGBoost, Prophet, SARIMAX
+\end{IEEEkeywords}
+
+
+\section{Introduction}
+
+Demand forecasting plays a critical role in the pharmaceutical industry, impacting inventory management, production planning, and supply chain optimization. Accurate demand predictions enable pharmaceutical companies to ensure drug availability while minimizing costs associated with overstocking or stockouts. Several techniques have been proposed to address these challenges, ranging from traditional statistical models to machine learning approaches.
+
+For instance, Taylor and Letham \cite{taylor2018forecasting} introduced scalable forecasting methods for large-scale applications, providing a robust foundation for predictive modeling in healthcare. Hyndman and Athanasopoulos \cite{hyndman2018forecasting} explored advanced time-series forecasting techniques, demonstrating their applicability in dynamic environments. Chen and Guestrin \cite{chen2016xgboost} proposed the XGBoost framework, a powerful tool for regression and classification tasks, which has been successfully adapted to demand forecasting scenarios. Meng et al. \cite{meng2021comparative} compared the performance of traditional and machine learning methods, emphasizing the advantages of integrating LSTM models for improved accuracy. Xu et al. \cite{xu2019hybrid} demonstrated the effectiveness of hybrid models combining linear regression and deep learning techniques for time-series predictions.
+
+In addition to these foundational works, recent studies have highlighted the potential of integrating domain-specific factors and hybrid approaches for pharmaceutical demand forecasting. Poyraz et al. \cite{poyraz2020drug} applied machine learning algorithms to predict pharmacy-level drug sales, achieving notable accuracy through models such as Random Forest and decision trees. Beyca et al. \cite{beyca2022integration} further integrated time-series and regression models, addressing external influences like promotions and pricing strategies. Haider \cite{haider2022enhancing} emphasized the importance of external data sources, such as market trends and regulatory changes, in enhancing forecasting accuracy. Rathipriya et al. \cite{rathipriya2023time} explored hybrid neural network models, validating their robustness in handling complex, nonlinear patterns.
+
+Other research has focused on developing machine learning models for specific use cases. Mbonyinshuti et al. \cite{mbonyinshuti2022essential} applied Random Forest techniques to predict essential medicine consumption in Rwanda, demonstrating the utility of data-driven approaches for public health. Ghousi et al. \cite{ghousi2012data} investigated data mining techniques, revealing how association rules and artificial neural networks can uncover hidden patterns in drug consumption data. Siddiqui et al. \cite{siddiqui2021hybrid} proposed a hybrid ARIMA-Holt’s Winter model, achieving superior accuracy for pharmaceutical demand forecasting by leveraging the strengths of individual algorithms.
+
+
+Building on these foundational studies, we propose a novel hybrid forecasting framework that integrates XGBoost, SARIMAX, and Prophet. Our approach is designed to overcome the limitations of individual models by:
+
+\begin{itemize}
+    \item Leveraging XGBoost's strength in modeling non-linear relationships and feature interactions.
+    \item Utilizing SARIMAX to explicitly incorporate external variables and capture seasonality.
+    \item Exploiting Prophet's ability to decompose trends and handle missing data robustly.
+\end{itemize}
+
+The proposed framework aims to provide a scalable and adaptable solution tailored to the unique challenges of drug inventory forecasting. By combining these complementary methodologies, we address key gaps in existing research and offer a comprehensive approach to improve prediction accuracy and robustness.
+
+The remainder of this paper is organized as follows: Section II details the methodology, including data preprocessing and model design. Section III presents experimental results and discussions, highlighting the advantages of the proposed framework. Finally, Section IV concludes the study and outlines future research directions.
+
+\section{Methodology}
+\subsection{Data Preprocessing}
+The dataset consists of monthly drug consumption records, including drug name, manufacturer, and monthly consumption values. The following steps were applied for data cleaning and preprocessing:
+
+\begin{itemize}
+    \item \textbf{Data Cleaning}: Removed duplicate entries, handled missing values, and normalized consumption data where required.
+    \item \textbf{Outlier Detection}: Applied Z-score and Interquartile Range (IQR) methods to detect and cap outliers at the 5th and 95th percentiles.
+    \item \textbf{Feature Engineering}: Derived features such as lagged values, rolling statistics, percentage changes, and seasonality indicators using trigonometric functions.
+\end{itemize}
+
+\subsection{Models}
+The study evaluates three models—XGBoost, SARIMAX, and Prophet—both independently and within a hybrid framework. Each model contributes unique capabilities. XGBoost handles short-term predictions effectively, SARIMAX captures long-term trends, and Prophet excels in handling irregular seasonal patterns.
+
+\subsection{SARIMAX with Exogenous Variables}
+SARIMAX extends the traditional ARIMA model by incorporating external (exogenous) variables, denoted as \(X_{t}\). The SARIMAX model is represented as:
+
+\begin{equation}
+y_{t}=\phi(B)\theta(B)^{-1}\left(c+\mathbf{X}_{t}\beta+\epsilon_{t}\right),
+\end{equation}
+
+where:
+\begin{itemize}
+    \item \(y_{t}\): The target variable (e.g., monthly drug consumption).
+    \item \(\phi(B)\): The autoregressive (AR) operator.
+    \item \(\theta(B)\): The moving average (MA) operator.
+    \item \(c\): A constant term.
+    \item \(\mathbf{X}_{t}\): A vector of exogenous variables at time \(t\).
+    \item \(\beta\): The coefficient vector for \(\mathbf{X}_{t}\).
+    \item \(\epsilon_{i}\): White noise error term.
+\end{itemize}
+
+\subsubsection{Exogenous Variables}
+To enhance prediction accuracy, the following exogenous variables are included:
+
+\begin{enumerate}
+    \item \textbf{Lagged Values}:
+    \begin{equation}
+    \text{lag}_{k}=y_{t-k},\quad k\in\{1,3,6,12\},
+    \end{equation}
+    capturing the delayed impact of past consumption.
+
+    \item \textbf{Rolling Statistics}:
+    \begin{equation}
+    \text{Rolling Mean}_{k}=\frac{1}{k}\sum_{i=1}^{k}y_{t-i},
+    \end{equation}
+    \begin{equation}
+    \text{Rolling Std}_{k}=\sqrt{\frac{1}{k}\sum_{i=1}^{k}(y_{t-i}-\text{Mean})^{2}},
+    \end{equation}
+    representing the moving average and variability over a specified window.
+
+    \item \textbf{Exponential Weighted Moving Average (EWMA)}:
+    \begin{equation}
+    \text{EWMA}_{\alpha}=\alpha y_{t}+(1-\alpha)\cdot\text{EWMA}_{\alpha,t-1},
+    \end{equation}
+    emphasizing recent observations with a smoothing factor \(\alpha\).
+
+    \item \textbf{Seasonality Variables}: Monthly seasonality is encoded using trigonometric functions:
+    \begin{equation}
+    \text{Month\_sin}=\sin\left(\frac{2\pi\cdot\text{Month}}{12}\right),
+    \end{equation}
+    \begin{equation}
+    \text{Month\_cos}=\cos\left(\frac{2\pi\cdot\text{Month}}{12}\right).
+    \end{equation}
+
+    \item \textbf{Percentage Change}: Measuring relative changes over time:
+    \begin{equation}
+    \text{Pet\_Change}_{1}=\frac{y_{t}-y_{t-1}}{y_{t-1}},
+    \end{equation}
+    \begin{equation}
+    \text{Pet\_Change}_{3}=\frac{y_{t}-y_{t-3}}{y_{t-3}}.
+    \end{equation}
+
+    \item \textbf{Trend and Volatility}:
+    \begin{equation}
+    \text{Trend Strength}=\frac{1}{k}\sum_{i=1}^{k}|y_{t-i}-y_{t-t-1}|,
+    \end{equation}
+    \begin{equation}
+    \text{Volatility}=\text{Rolling Std}_{k}.
+    \end{equation}
+\end{enumerate}
+
+These variables capture both historical patterns and contextual dynamics, enabling SARIMAX to model complex dependencies.
+
+\subsection{XGBoost Model}
+XGBoost is a gradient boosting model that constructs an ensemble of decision trees to predict the target variable. It excels at capturing non-linear relationships and interactions in the data. For time-series forecasting, exogenous features and rolling-window predictions are incorporated.
+
+The XGBoost model can be represented as:
+
+\begin{equation}
+\hat{y}_{t}=F(x_{t})=\sum_{k=1}^{K}f_{k}(x_{t}),\quad f_{k}\in\mathcal{F},
+\end{equation}
+
+where:
+\begin{itemize}
+    \item \(\hat{y}_{t}\): The predicted value at time \(t\),
+    \item \(x_{t}\): The input features (e.g., lagged values, rolling mean, seasonality),
+    \item \(f_{k}\): The \(k\)-th decision tree,
+    \item \(\mathcal{F}\): The function space of decision trees.
+\end{itemize}
+
+\subsubsection{Model Training}
+The XGBoost model is trained iteratively using a rolling-window approach. At each iteration, a grid search is performed over the following hyperparameter space:
+
+\begin{itemize}
+    \item Number of estimators (n\_estimators): [100, 200, 300],
+    \item Learning rate (learning\_rate): [0.01, 0.05, 0.1],
+    \item Maximum tree depth (max\_depth): [3, 5, 7],
+    \item Subsample ratio (subsample): [0.8, 1.0],
+    \item Column sampling (colsample\_bytree): [0.8, 1.0].
+\end{itemize}
+
+\subsection{Prophet Model}
+Prophet is a time-series forecasting model developed by Facebook that explicitly decomposes the data into trend, seasonality, and holiday components. It is particularly effective for handling missing values, outliers, and irregular patterns in the data.
+
+The model can be represented as:
+
+\begin{equation}
+y_{t}=g(t)+s(t)+h(t)+\epsilon_{t},
+\end{equation}
+
+where:
+\begin{itemize}
+    \item \(g(t)\): Trend component, representing long-term growth or decay,
+    \item \(s(t)\): Seasonal component, modeled using Fourier series,
+    \item \(h(t)\): Holiday effects or special events,
+    \item \(\epsilon_{t}\): White noise error term.
+\end{itemize}
+
+\subsubsection{Parameter Tuning}
+Prophet's key hyperparameters include:
+
+\begin{itemize}
+    \item seasonality\_mode: Additive or multiplicative,
+    \item changepoint\_prior\_scale: Controls flexibility of the trend component,
+    \item seasonality\_prior\_scale: Controls the weight of seasonal components.
+\end{itemize}
+
+A grid search over these parameters is performed to identify the optimal configuration for each drug-manufacturer combination.
+
+\subsection{Dynamic Feature Engineering}
+Feature engineering is crucial for enhancing model performance. Besides the exogenous variables described above, outlier detection is a key preprocessing step.
+
+\subsubsection{Outlier Detection and Handling}
+Outliers can distort predictions and degrade model performance. This study employs two approaches for outlier detection:
+
+\begin{itemize}
+    \item \textbf{Z-score Method}: The Z-score for each data point \(y_{i}\) is calculated as:
+    \begin{equation}
+    Z_{i}=\frac{y_{i}-\mu}{\sigma},
+    \end{equation}
+    where \(\mu\) is the mean and \(\sigma\) is the standard deviation of the dataset. Data points with \(|Z_{i}|>3\) are identified as outliers.
+
+    \item \textbf{Interquartile Range (IQR) Method}: The IQR is defined as:
+    \begin{equation}
+    \text{IQR}=Q_{3}-Q_{1},
+    \end{equation}
+    where \(Q_{1}\) and \(Q_{3}\) are the 25th and 75th percentiles, respectively. A data point \(y_{i}\) is considered an outlier if:
+    \begin{equation}
+    y_{i}<Q_{1}-1.5\cdot\text{IQR}\quad\text{or}\quad y_{i}>Q_{3}+1.5\cdot\text{IQR}.
+    \end{equation}
+\end{itemize}
+
+To mitigate the effect of outliers, values exceeding these thresholds are capped at the 5th and 95th percentiles of the data distribution:
+
+\begin{equation}
+y_{i}=\begin{cases}\text{Percentiles},&\text{if }y_{i}<\text{Percentiles}\\ \text{Percentile}_{95},&\text{if }y_{i}>\text{Percentile}_{95}.\end{cases}
+\end{equation}
+
+\subsubsection{Rolling-Window Forecasting}
+To adapt to dynamic consumption patterns, a rolling-window mechanism is implemented. At each prediction step \(t\), the model is trained using historical data \(\{y_{1},y_{2},\ldots,y_{t}\}\), and the prediction for \(t+1\) is made. The window then updates to include the latest observation, ensuring that the model adapts to recent trends.
+
+\section{Experiments}
+\subsection{Experimental Setup}
+The dataset consists of monthly drug consumption records, including:
+
+\begin{itemize}
+    \item Drug Name
+    \item Manufacturer
+    \item Monthly Consumption
+\end{itemize}
+
+Models are evaluated using the following metrics:
+
+\begin{enumerate}
+    \item \textbf{Root Mean Squared Error (RMSE)}:
+    \begin{equation}
+    \text{RMSE}=\sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_{i}-\hat{y}_{i})^{2}}.
+    \end{equation}
+
+    \item \textbf{Mean Absolute Error (MAE)}:
+    \begin{equation}
+    \text{MAE}=\frac{1}{n}\sum_{i=1}^{n}|y_{i}-\hat{y}_{i}|\,.
+    \end{equation}
+
+    \item \textbf{Symmetric Mean Absolute Percentage Error (SMAPE)}:
+    \begin{equation}
+    \text{SMAPE}=\frac{1}{n}\sum_{i=1}^{n}\frac{|y_{i}-\hat{y}_{i}|}{(|y_{i}|+|\hat{y}_{i}|)/2}\times 100\%.
+    \end{equation}
+\end{enumerate}
+
+\subsection{Results}
+The performance of the models is summarized in Table I.
+
+\section{Discussion and Future Work}
+\subsection{Model Comparison and Hybrid Framework}
+While each model has unique strengths and limitations, integrating their complementary capabilities within a hybrid framework provides significant advantages:
+
+\begin{itemize}
+    \item \textbf{XGBoost} handles nonlinear relationships effectively.
+    \item \textbf{SARIMAX} captures seasonality and leverages external variables.
+    \item \textbf{Prophet} provides robust decomposition of trend and seasonality.
+\end{itemize}
+
+The hybrid approach enables the framework to adapt to different data characteristics, achieving better overall prediction performance. For example, SARIMAX improves accuracy when seasonality dominates, whereas XGBoost captures complex interactions in data with dynamic patterns.
+
+\subsection{Future Work}
+To further improve drug inventory predictions, the following directions are proposed for future research:
+
+\begin{itemize}
+    \item \textbf{Hybrid Framework Expansion}: Extend the hybrid framework by integrating additional models, such as LightGBM, Transformer-based architectures, or ensemble methods to capture both short-term fluctuations and long-term trends.
+    \item \textbf{External Variable Enrichment}: Explore additional exogenous variables such as patient inflow, epidemic outbreak data, seasonal illnesses (e.g., flu seasons), or hospital-specific factors to improve prediction accuracy.
+    \item \textbf{Automated Model Selection}: Implement automated hyperparameter tuning and model selection techniques (e.g., Bayesian optimization) to improve forecasting performance with minimal manual intervention.
+\end{itemize}
+
+By addressing these areas, the proposed framework can become a more robust and scalable solution for hospital pharmacy inventory management, ensuring continuous patient care and reducing operational inefficiencies.
+
+\section{Conclusion}
+This study evaluated the performance of XGBoost, SARIMAX, and Prophet for drug inventory prediction in hospital pharmacies. The main findings are as follows:
+
+\begin{itemize}
+    \item XGBoost outperformed SARIMAX and Prophet in terms of RMSE and SMAPE for short-term predictions.
+    \item SARIMAX demonstrated better performance when external (exogenous) variables were included and seasonal trends dominated the data.
+    \item Prophet performed well in capturing long-term seasonality and trends but showed limitations in handling highly sparse data.
+\end{itemize}
+
+The hybrid framework, by combining these models, shows promise for improving prediction accuracy and robustness. Future work will focus on integrating real-time data streams and exploring additional hybrid models, such as Transformer-based architectures, to further enhance predictive capabilities.
+
+\section{References}
+
+\begin{thebibliography}{99}
+
+\bibitem{taylor2018forecasting}
+S. J. Taylor and B. Letham, “Forecasting at scale,” \textit{The American Statistician}, vol. 72, no. 1, pp. 37–45, 2018.
+
+\bibitem{hyndman2018forecasting}
+R. J. Hyndman and G. Athanasopoulos, \textit{Forecasting: Principles and Practice}, Melbourne, Australia: OTexts, 2018.
+
+\bibitem{chen2016xgboost}
+T. Chen and C. Guestrin, “XGBoost: A scalable tree boosting system,” \textit{Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining}, 2016, pp. 785–794.
+
+\bibitem{meng2021comparative}
+J. Meng et al., “Comparative analysis of Prophet and LSTM models in drug sales forecasting,” \textit{Journal of Physics: Conference Series}, vol. 1910, no. 1, p. 012059, 2021.
+
+\bibitem{xu2019hybrid}
+W. Xu et al., “A hybrid modelling method for time series forecasting based on a linear regression model and deep learning,” \textit{Applied Intelligence}, vol. 49, no. 7, pp. 2875–2888, 2019.
+
+\bibitem{poyraz2020drug}
+I. Poyraz and A. Gürhanlı, “Drug Demand Forecasting for Pharmacies with Machine Learning Algorithms,” \textit{International Journal of Engineering Research and Applications}, vol. 10, no. 7, pp. 51–54, 2020.
+
+\bibitem{beyca2022integration}
+S. İmece and Ö. F. Beyca, “Demand Forecasting with Integration of Time Series and Regression Models in Pharmaceutical Industry,” \textit{International Journal of Advanced Engineering Pure Science}, vol. 34, no. 3, pp. 415–425, 2022.
+
+\bibitem{haider2022enhancing}
+N. N. Haider, “Enhancing Forecasting Accuracy in the Pharmaceutical Industry: A Comprehensive Review of Methods, Models, and Data Applications,” \textit{Journal of Scientific and Engineering Research}, vol. 9, no. 2, pp. 156–160, 2022.
+
+\bibitem{rathipriya2023time}
+R. Rathipriya et al., “Demand Forecasting Model for Time-Series Pharmaceutical Data Using Neural Networks,” \textit{Neural Computing and Applications}, vol. 35, pp. 1945–1957, 2023.
+
+\bibitem{mbonyinshuti2022essential}
+F. Mbonyinshuti et al., “The Prediction of Essential Medicines Demand: A Machine Learning Approach Using Consumption Data in Rwanda,” \textit{Processes}, vol. 10, no. 26, pp. 1–13, 2022.
+
+\bibitem{ghousi2012data}
+R. Ghousi et al., “Application of Data Mining Techniques in Drug Consumption Forecasting to Help Pharmaceutical Industry Production Planning,” \textit{Proceedings of the International Conference on Industrial Engineering and Operations Management}, pp. 1162–1165, 2012.
+
+\bibitem{siddiqui2021hybrid}
+R. Siddiqui et al., “A Hybrid Demand Forecasting Model for Greater Forecasting Accuracy: The Case of the Pharmaceutical Industry,” \textit{Supply Chain Forum: An International Journal}, vol. 22, no. 3, pp. 1–13, 2021.
+
+\end{thebibliography}
+
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}
