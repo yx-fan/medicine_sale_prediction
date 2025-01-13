@@ -1,11 +1,13 @@
 \documentclass[journal]{IEEEtran}
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
-\usepackage{algorithmic}
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{xcolor}
 \usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
 \hypersetup{
     colorlinks=true,
     linkcolor=blue,
@@ -58,14 +60,15 @@ The proposed framework aims to provide a scalable and adaptable solution tailore
 The remainder of this paper is organized as follows: Section II details the methodology, including data preprocessing and model design. Section III presents experimental results and discussions, highlighting the advantages of the proposed framework. Finally, Section IV concludes the study and outlines future research directions.
 
 \section{Methodology}
-\subsection{Data Preprocessing}
-The dataset consists of monthly drug consumption records, including drug name, manufacturer, and monthly consumption values. The following steps were applied for data cleaning and preprocessing:
+\subsection{Data Processing}
 
-\begin{itemize}
-    \item \textbf{Data Cleaning}: Removed duplicate entries, handled missing values, and normalized consumption data where required.
-    \item \textbf{Outlier Detection}: Applied Z-score and Interquartile Range (IQR) methods to detect and cap outliers at the 5th and 95th percentiles.
-    \item \textbf{Feature Engineering}: Derived features such as lagged values, rolling statistics, percentage changes, and seasonality indicators using trigonometric functions.
-\end{itemize}
+The raw dataset consists of monthly drug consumption records, including drug name, manufacturer, and associated features such as monthly consumption values, inventory amounts, and proportions. To ensure data quality and consistency, a comprehensive preprocessing pipeline was applied. Initially, duplicate entries were removed by identifying and merging records with the same combination of drug name, manufacturer, and date. Missing values in critical features were handled using interpolation for time series variables, while records with excessive missing data were excluded entirely. To facilitate downstream analysis and ensure comparability, continuous variables such as consumption and inventory values were standardized where appropriate.
+
+Outlier detection was conducted to address extreme values in the consumption data, leveraging a dynamic rolling-window approach. Specifically, for each group of drug-manufacturer combinations, rolling statistics including mean, standard deviation, and quantile thresholds (5th and 95th percentiles) were computed using a sliding window of seven months. Potential outliers were identified based on their Z-scores, with values exceeding a threshold of 3 flagged as anomalies, as well as those falling outside the computed quantile range. Detected outliers were adjusted to the nearest valid boundary to preserve the continuity of the time series while mitigating the influence of extreme values.
+
+To ensure the dataset included only high-quality samples for modeling, a rigorous sample selection process was employed. Groups with fewer than six months of non-zero consumption data or those exhibiting extreme sparsity, defined by a low proportion of non-zero values, were excluded. Additionally, the temporal autocorrelation of the consumption data was assessed using the autocorrelation function (ACF), and groups with insufficient autocorrelation were removed. Further filtering criteria included variance thresholds to exclude groups with overly stable data, limits on missing data ratios for derived features, and bounds on skewness to prevent heavily imbalanced target distributions. To ensure temporal relevance, only groups with at least one record on or after August 31, 2024, were retained. Moreover, feature correlation analysis was performed to ensure predictive relevance, with groups failing to meet minimum correlation thresholds excluded from the final dataset.
+
+Finally, feature engineering was conducted to enhance the predictive power of the dataset. Derived features such as lagged consumption values (e.g., previous month’s consumption), rolling statistics (e.g., mean, variance, and percent changes), and seasonality indicators encoded with trigonometric functions were created to capture temporal dependencies and periodic trends. This preprocessing pipeline ensured that the final dataset was robust, informative, and well-suited for downstream predictive modeling tasks. Details of the sample selection algorithm are provided in Appendix~\ref{appendix:sample-selection}.
 
 \subsection{Models}
 The study evaluates three models—XGBoost, SARIMAX, and Prophet—both independently and within a hybrid framework. Each model contributes unique capabilities. XGBoost handles short-term predictions effectively, SARIMAX captures long-term trends, and Prophet excels in handling irregular seasonal patterns.
@@ -335,6 +338,56 @@ R. Ghousi et al., “Application of Data Mining Techniques in Drug Consumption F
 R. Siddiqui et al., “A Hybrid Demand Forecasting Model for Greater Forecasting Accuracy: The Case of the Pharmaceutical Industry,” \textit{Supply Chain Forum: An International Journal}, vol. 22, no. 3, pp. 1–13, 2021.
 
 \end{thebibliography}
+
+\appendix
+\section{Sample Selection Algorithm}
+\label{appendix:sample-selection}
+
+The following pseudocode outlines the sample selection process used to ensure the quality and relevance of the dataset for modeling tasks:
+
+\begin{algorithm}[H]
+\caption{Sample Selection Algorithm}
+\begin{algorithmic}[1]
+\Require Cleaned data $df$, configuration thresholds $\text{config}$
+\Ensure Filtered dataset $final\_df$
+\State $final\_df \gets \emptyset$
+\For{each unique combination of drug name and manufacturer $(d, m)$ in $df$}
+    \State $group\_data \gets$ subset of $df$ for $(d, m)$
+    \If{length of $group\_data < \text{config.min\_months}$ \textbf{or} sum of consumption $= 0$}
+        \State \textbf{Skip group} \Comment{Insufficient or sparse data}
+    \EndIf
+    \State $non\_zero\_ratio \gets$ proportion of non-zero consumption in $group\_data$
+    \If{$non\_zero\_ratio < \text{config.sparsity\_threshold}$}
+        \State \textbf{Skip group} \Comment{Data too sparse}
+    \EndIf
+    \State $acf\_values \gets$ autocorrelation function of consumption in $group\_data$
+    \If{$\max(acf\_values[1:]) < \text{config.min\_acf\_threshold}$}
+        \State \textbf{Skip group} \Comment{Insufficient autocorrelation}
+    \EndIf
+    \If{no start date $\geq \text{config.min\_start\_date}$ in $group\_data$}
+        \State \textbf{Skip group} \Comment{No recent data}
+    \EndIf
+    \State $variance \gets$ variance of consumption in $group\_data$
+    \If{$variance < \text{config.min\_variance\_threshold}$}
+        \State \textbf{Skip group} \Comment{Variance too low}
+    \EndIf
+    \State $missing\_ratio \gets$ maximum missing ratio for features in $group\_data$
+    \If{$missing\_ratio > \text{config.max\_missing\_ratio}$}
+        \State \textbf{Skip group} \Comment{Feature missing data too high}
+    \EndIf
+    \State $skewness \gets$ skewness of consumption in $group\_data$
+    \If{$|skewness| > \text{config.max\_skewness}$}
+        \State \textbf{Skip group} \Comment{Target variable too skewed}
+    \EndIf
+    \State $correlation \gets$ correlation of consumption with lagged features in $group\_data$
+    \If{$|correlation| < \text{config.min\_correlation}$}
+        \State \textbf{Skip group} \Comment{Insufficient correlation with features}
+    \EndIf
+    \State $final\_df \gets final\_df \cup group\_data$
+\EndFor
+\State \Return $final\_df$
+\end{algorithmic}
+\end{algorithm}
 
 
 \bibliographystyle{IEEEtran}
