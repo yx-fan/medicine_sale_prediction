@@ -49,150 +49,134 @@ The remainder of this paper is organized as follows: Section II details the meth
 
 \section{Methodology}
 
-\subsection{Introduction to Hybrid Model Framework}
+\subsection{Hybrid Model Framework}
 
-The proposed hybrid forecasting framework integrates the complementary strengths of Prophet, SARIMAX, and XGBoost to address the challenges of drug consumption prediction. Unlike single-model approaches that are limited in their ability to generalize across diverse data characteristics, this framework leverages the distinct strengths of each model to provide more comprehensive and accurate predictions. By dynamically selecting the most appropriate model for each drug-manufacturer combination, the framework ensures that varying data patterns, including seasonal variations, non-linear dependencies, and sparse observations, are effectively captured.
+The proposed hybrid forecasting framework integrates the complementary strengths of Prophet, SARIMAX, and XGBoost to address the diverse challenges in drug consumption prediction. Single-model approaches often struggle with generalization across datasets characterized by varying seasonality, non-linear dependencies, and sparsity. By leveraging the unique capabilities of each model, the hybrid framework provides a robust solution tailored to the specific characteristics of individual drug-manufacturer combinations.
 
-A key challenge in drug consumption prediction is the variability in data characteristics across different drug-manufacturer combinations. Some datasets exhibit consistent and stable trends over time, while others may show significant volatility or sparsity. For example, drugs with high and regular demand may be well-suited to models like Prophet, which excels at decomposing long-term trends and seasonal components. Conversely, drugs with irregular consumption patterns or strong external influences may be better explained by SARIMAX, which incorporates external variables and captures short-term dynamics through advanced feature engineering. In cases where non-linear interactions and complex feature dependencies dominate, XGBoost is better equipped to model these relationships due to its gradient boosting mechanism and flexibility in feature selection.
+Drug consumption data exhibits significant variability, with some combinations showing consistent trends while others experience volatility or irregular demand. Models like Prophet excel at capturing stable long-term trends and seasonal patterns, making them suitable for drugs with high and regular demand. On the other hand, SARIMAX is better equipped to handle datasets influenced by external variables or strong short-term dynamics, as it integrates advanced feature engineering and external factor modeling. For scenarios with complex non-linear relationships or sparse observations, XGBoost proves advantageous due to its flexibility in handling feature interactions and non-linear dependencies.
 
-To account for these differences, the framework evaluates each model’s performance on specific drug-manufacturer combinations using metrics such as R\(^2\) and symmetric mean absolute percentage error (SMAPE). These metrics provide a quantitative basis for selecting the model that best explains the underlying data patterns. For instance, a high R\(^2\) value indicates that a model effectively captures the variance in the data, while a low SMAPE suggests robust performance in capturing relative changes across time. By dynamically assigning the most suitable model to each combination, the framework maximizes prediction accuracy and minimizes the limitations associated with single-model approaches.
+To optimize predictions, the framework dynamically selects the most appropriate model for each drug-manufacturer combination. Performance metrics such as R\(^2\) and symmetric mean absolute percentage error (SMAPE) are employed to evaluate each model’s effectiveness. A high R\(^2\) score indicates that the model captures most of the variance in the data, while a low SMAPE value reflects accuracy in representing relative changes. This data-driven model selection process ensures that the framework adapts to heterogeneous consumption patterns, maximizing prediction accuracy and robustness.
 
-This model selection strategy highlights the heterogeneity in drug consumption trends and emphasizes the need for a hybrid approach. Drugs with stable and predictable behavior are efficiently handled by models like Prophet, while SARIMAX addresses datasets influenced by external factors or exhibiting strong seasonality. XGBoost complements these statistical models by providing superior accuracy for datasets with non-linear relationships or sparse observations. Through this collaborative mechanism, the hybrid framework not only enhances prediction robustness but also expands the scope of application to a wider variety of drug consumption scenarios.
-
+By dynamically assigning models based on their strengths, the hybrid framework efficiently handles diverse scenarios. Prophet is ideal for stable and predictable datasets, SARIMAX excels in addressing external factors and seasonality, while XGBoost captures non-linear and sparse patterns. This synergy of models enhances the overall robustness of the forecasting system, providing a scalable and versatile solution for hospital pharmacies managing a wide range of drug consumption trends.
 
 
 \subsection{Model Design and Roles}
 
-The hybrid forecasting framework integrates Prophet, SARIMAX, and XGBoost to leverage their respective strengths in addressing the challenges of drug consumption prediction. Each model is designed to fulfill a specific role, complementing the others to achieve higher accuracy and robustness. Prophet focuses on capturing long-term trends and seasonality, SARIMAX incorporates external variables and advanced feature engineering for short-term dependencies, and XGBoost models complex non-linear interactions among features. Together, they form a cohesive framework for dynamic and adaptive time-series forecasting.
+The hybrid framework integrates Prophet, SARIMAX, and XGBoost, each addressing distinct aspects of drug consumption prediction. Prophet excels at decomposing time-series data into trends, seasonality, and special events, making it suitable for datasets with consistent patterns. SARIMAX incorporates external variables and advanced feature engineering to model short-term dependencies and seasonality, effectively handling data influenced by external factors. XGBoost captures non-linear relationships and complex feature interactions, providing robustness for datasets with irregular or sparse observations. By combining these models, the framework dynamically adapts to diverse data characteristics, ensuring accurate and robust predictions across a wide range of forecasting scenarios.
 
 \subsubsection{SARIMAX Model}
 
-SARIMAX extends the traditional ARIMA model by incorporating external (exogenous) variables, allowing it to capture external influences on the target variable. This capability makes SARIMAX particularly suitable for time-series data with seasonality, trends, and additional contextual factors. The model is defined as:
+SARIMAX extends the traditional ARIMA model by incorporating external (exogenous) variables, making it well-suited for time-series data with seasonality, trends, and contextual factors. The model is defined as:
 
 \begin{equation}
 y_{t} = \phi(B)\theta(B)^{-1} \left( c + \mathbf{X}_{t}\beta + \epsilon_{t} \right),
 \end{equation}
 
-where:
+where \(y_{t}\) represents the target variable (e.g., monthly drug consumption), \(\mathbf{X}_{t}\) denotes the exogenous variables, and \(\epsilon_{t}\) is the white noise error term. 
+
+To enhance prediction accuracy, our SARIMAX utilizes advanced feature engineering to incorporate exogenous variables, including:
+
 \begin{itemize}
-    \item \(y_{t}\): The target variable (e.g., monthly drug consumption).
-    \item \(\phi(B)\): The autoregressive (AR) operator.
-    \item \(\theta(B)\): The moving average (MA) operator.
-    \item \(c\): A constant term.
-    \item \(\mathbf{X}_{t}\): A vector of exogenous variables at time \(t\).
-    \item \(\beta\): The coefficient vector for \(\mathbf{X}_{t}\).
-    \item \(\epsilon_{t}\): White noise error term.
+    \item \textbf{Lagged values}: Capture delayed effects of past consumption:
+    \begin{equation}
+    \text{lag}_{k} = y_{t-k}, \quad k \in \{1, 3, 6, 12\}.
+    \end{equation}
+    
+    \item \textbf{Rolling statistics}: Represent short-term trends and variability:
+    \begin{align}
+    \text{Rolling Mean}_{k} &= \frac{1}{k} \sum_{i=1}^{k} y_{t-i}, \\
+    \text{Rolling Std}_{k} &= \sqrt{\frac{1}{k} \sum_{i=1}^{k} (y_{t-i} - \text{Mean})^2}.
+    \end{align}
+    
+    \item \textbf{Seasonality}: Encode monthly seasonality using trigonometric functions:
+    \begin{align}
+    \text{Month\_sin} &= \sin\left(\frac{2\pi \cdot \text{Month}}{12}\right), \\
+    \text{Month\_cos} &= \cos\left(\frac{2\pi \cdot \text{Month}}{12}\right).
+    \end{align}
+    
+    \item \textbf{Exponential weighted moving average (EWMA)}: Smoothing recent observations:
+    \begin{equation}
+    \text{EWMA}_{\alpha} = \alpha y_{t} + (1-\alpha) \cdot \text{EWMA}_{\alpha,t-1}.
+    \end{equation}
+    
+    \item \textbf{Percentage change and trend strength}: Capture relative variations and long-term dynamics:
+    \begin{align}
+    \text{Pet\_Change}_{k} &= \frac{y_{t} - y_{t-k}}{y_{t-k}}, \\
+    \text{Trend Strength} &= \frac{1}{k} \sum_{i=1}^{k} \lvert y_{t-i} - y_{t-i-1} \rvert.
+    \end{align}
 \end{itemize}
 
-To enhance prediction accuracy, SARIMAX incorporates various exogenous variables derived through advanced feature engineering. These include:
-
-\text{Lagged values}:  
-Lagged values capture the delayed effects of past consumption and are defined as:
-\begin{equation}
-\text{lag}_{k} = y_{t-k}, \quad k \in \{1, 3, 6, 12\}.
-\end{equation}
-
-\text{Rolling statistics}:  
-Rolling statistics represent short-term trends and variability. They include the rolling mean and standard deviation:
-\begin{equation}
-\text{Rolling Mean}_{k} = \frac{1}{k} \sum_{i=1}^{k} y_{t-i},
-\end{equation}
-\begin{equation}
-\text{Rolling Std}_{k} = \sqrt{\frac{1}{k} \sum_{i=1}^{k} (y_{t-i} - \text{Mean})^2}.
-\end{equation}
-
-\text{Exponential weighted moving average (EWMA)}:  
-EWMA emphasizes recent observations with a smoothing factor \(\alpha\):
-\begin{equation}
-\text{EWMA}_{\alpha} = \alpha y_{t} + (1-\alpha) \cdot \text{EWMA}_{\alpha,t-1}.
-\end{equation}
-
-\text{Seasonality variables}:  
-Monthly seasonality is encoded using trigonometric functions:
-\begin{equation}
-\text{Month\_sin} = \sin\left(\frac{2\pi \cdot \text{Month}}{12}\right),
-\end{equation}
-\begin{equation}
-\text{Month\_cos} = \cos\left(\frac{2\pi \cdot \text{Month}}{12}\right).
-\end{equation}
-
-\text{Percentage change}:  
-Percentage change measures relative variations over time:
-\begin{equation}
-\text{Pet\_Change}_{1} = \frac{y_{t} - y_{t-1}}{y_{t-1}},
-\end{equation}
-\begin{equation}
-\text{Pet\_Change}_{3} = \frac{y_{t} - y_{t-3}}{y_{t-3}}.
-\end{equation}
-
-\text{Trend and volatility}:  
-Trend strength captures long-term dynamics, while volatility measures variability:
-\begin{equation}
-\text{Trend Strength} = \frac{1}{k} \sum_{i=1}^{k} \lvert y_{t-i} - y_{t-i-1} \rvert,
-\end{equation}
-\begin{equation}
-\text{Volatility} = \text{Rolling Std}_{k}.
-\end{equation}
-
-These exogenous variables, combined with SARIMAX’s inherent ability to model seasonality and trends, enable it to effectively capture complex temporal dependencies and improve prediction accuracy.
+These engineered features enable SARIMAX to capture both short-term dependencies and long-term trends, significantly enhancing its ability to model complex temporal patterns in drug consumption data.
 
 \subsubsection{XGBoost Model}
 
-XGBoost is a gradient boosting framework designed to construct an ensemble of decision trees for predicting target variables. Its ability to capture non-linear relationships and complex interactions among features makes it highly effective for time-series forecasting tasks, particularly in scenarios involving dynamic patterns and sparse data. The model predicts the target variable \(y_t\) through an additive function:
+XGBoost is a gradient boosting framework that constructs an ensemble of decision trees to predict the target variable \(y_t\). It is particularly effective for time-series forecasting involving non-linear relationships and sparse data. The model predicts \(y_t\) through an additive function:
 
 \begin{equation}
 \hat{y}_{t} = F(x_{t}) = \sum_{k=1}^{K} f_{k}(x_{t}), \quad f_{k} \in \mathcal{F},
 \end{equation}
 
-where \(\hat{y}_{t}\) is the predicted value at time \(t\), \(x_{t}\) represents the input features, \(f_{k}\) denotes the \(k\)-th decision tree, and \(\mathcal{F}\) is the function space of decision trees.
+where \(\hat{y}_{t}\) is the predicted value, \(x_{t}\) represents input features, \(f_{k}\) denotes the \(k\)-th decision tree, and \(\mathcal{F}\) is the space of decision trees.
 
-The predictive power of XGBoost in this framework is enhanced through careful feature engineering. Temporal dependencies are captured by incorporating lagged values, such as historical consumption data (\(y_{t-1}, y_{t-2}, \dots, y_{t-k}\)), which model delayed effects of past consumption. Rolling statistics, including moving averages and standard deviations over defined windows (e.g., 3, 6, and 12 periods), are introduced to quantify local trends and variability. Seasonal patterns are encoded using trigonometric functions (\(\sin\) and \(\cos\)) to capture monthly or quarterly cycles, and interaction terms are derived to represent the interplay between lagged values and seasonal indicators. This comprehensive feature set enables XGBoost to model both short-term fluctuations and long-term patterns effectively.
+\textbf{Feature Engineering:} Temporal dependencies are captured using lagged values (\(y_{t-1}, y_{t-2}, \dots\)), rolling statistics (e.g., moving averages and standard deviations over 3, 6, and 12 periods), and seasonal patterns encoded via trigonometric functions (\(\sin, \cos\)). Interaction terms between lagged values and seasonal indicators further enhance the model's ability to capture complex dependencies.
 
-To address the non-stationarity inherent in time-series data, the model is trained iteratively using a rolling-window approach. At each iteration, the training dataset is updated to include the most recent observations while maintaining a fixed window size. The model is then retrained on this updated dataset, and predictions are made for the subsequent time step. This rolling-window strategy ensures that the model dynamically adapts to evolving trends and minimizes the risk of overfitting to older data.
+\textbf{Rolling-Window Training:} The model employs a rolling-window approach to dynamically adapt to evolving trends. At each iteration, the training dataset is updated with the most recent observations, and the model is retrained to make predictions for the next time step, ensuring adaptability and minimizing overfitting.
 
-Hyperparameter optimization plays a crucial role in maximizing the model’s performance. During each training iteration, a grid search is conducted to tune parameters such as the number of estimators, learning rate, maximum tree depth, subsample ratio, and column sampling ratio. The number of estimators determines the size of the ensemble, while the learning rate controls the contribution of each tree to the final prediction. Maximum tree depth limits the complexity of individual trees to prevent overfitting, and the subsample and column sampling ratios regulate the fraction of data and features used for training, enhancing the model’s generalization capability.
+\textbf{Hyperparameter Optimization:} To maximize performance, a grid search tunes parameters such as:
+\begin{itemize}
+    \item \textit{Number of estimators}: Determines ensemble size.
+    \item \textit{Learning rate}: Controls the contribution of each tree.
+    \item \textit{Maximum tree depth}: Prevents overfitting by limiting tree complexity.
+    \item \textit{Subsample and column sampling ratios}: Enhance generalization by regulating data and feature subsets.
+\end{itemize}
 
-XGBoost serves as a critical component of the hybrid forecasting framework by complementing the strengths of statistical models like SARIMAX. Its ability to model non-linear interactions and complex dependencies allows it to address challenges posed by irregular patterns and sparse data. Moreover, its integration with rolling-window training and advanced feature engineering ensures robustness and adaptability, making it a valuable tool for predicting drug consumption trends in diverse scenarios.
+By modeling non-linear interactions and addressing irregular patterns, XGBoost complements statistical models like SARIMAX. Its integration with rolling-window training and advanced feature engineering ensures robust and adaptive predictions, making it a key component of the hybrid forecasting framework.
 
 
 \subsubsection{Prophet Model}
 
-Prophet is a robust time-series forecasting model developed by Facebook, designed to explicitly decompose time-series data into trend, seasonality, and holiday components. Its ability to handle missing values, outliers, and irregular patterns makes it particularly suitable for real-world applications involving complex and dynamic data. The model predicts the target variable \(y_t\) as:
+Prophet is a time-series forecasting model developed by Facebook, designed to decompose data into trend, seasonality, and holiday components. It is particularly effective in handling missing values, outliers, and irregular patterns, making it suitable for dynamic drug consumption data. The model predicts the target variable \(y_t\) as:
 
 \begin{equation}
 y_{t} = g(t) + s(t) + h(t) + \epsilon_{t},
 \end{equation}
 
-where \(g(t)\) represents the long-term trend, \(s(t)\) models recurring seasonal patterns using Fourier series, \(h(t)\) accounts for holiday effects or special events, and \(\epsilon_{t}\) is a white noise error term. This decomposition framework allows Prophet to capture distinct components of time-series data independently, providing interpretable results while maintaining high predictive accuracy.
+where \(g(t)\) represents the long-term trend, \(s(t)\) captures seasonal patterns using Fourier series, \(h(t)\) accounts for holiday effects, and \(\epsilon_{t}\) is the white noise error term. This decomposition enhances interpretability while maintaining predictive accuracy.
 
-To ensure the model's adaptability to different drug-manufacturer combinations, key hyperparameters are optimized through grid search. These parameters include:
-- \textit{seasonality\_mode}, which determines whether seasonal patterns are modeled as additive or multiplicative effects;
-- \textit{changepoint\_prior\_scale}, controlling the flexibility of the trend component by determining the likelihood of abrupt changes in growth;
-- \textit{seasonality\_prior\_scale}, which adjusts the weight assigned to seasonal components.
+\textbf{Hyperparameter Optimization:} Key hyperparameters are optimized via grid search:
+\begin{itemize}
+    \item \textit{seasonality\_mode}: Models seasonal effects as additive or multiplicative.
+    \item \textit{changepoint\_prior\_scale}: Controls flexibility for abrupt trend changes.
+    \item \textit{seasonality\_prior\_scale}: Adjusts the weight of seasonal components.
+\end{itemize}
+A higher \textit{changepoint\_prior\_scale} enables the model to adapt to frequent structural changes, while lower values favor smoother transitions.
 
-The grid search systematically explores combinations of these hyperparameters, enabling the model to identify configurations that best capture the temporal dynamics of drug consumption. For example, a higher \textit{changepoint\_prior\_scale} allows the model to adapt to datasets with frequent structural changes in trend, while a lower value favors smoother transitions.
+\textbf{Rolling-Window Forecasting:} The model employs a rolling-window strategy, retraining on the most recent data at each iteration. This ensures adaptability to emerging trends while mitigating the impact of outdated patterns, making it robust for datasets with irregular or sparse observations.
 
-Prophet’s rolling-window forecasting strategy further enhances its robustness. By iteratively retraining the model on the most recent data, the framework dynamically incorporates emerging trends and minimizes the impact of outdated patterns. This approach, combined with the model's inherent decomposition capabilities, ensures accurate and interpretable predictions, even for datasets with irregular or sparse observations.
+By combining decomposition capabilities, grid search optimization, and rolling-window forecasting, Prophet provides accurate and interpretable predictions, complementing the other components of the hybrid framework.
 
 \subsection{Dynamic Rolling-Window Forecasting}
 
-Time-series data often exhibit non-stationarity, where patterns such as trends, seasonality, and noise evolve over time. Static forecasting approaches, which rely on fixed historical data, may fail to adequately capture these dynamics, leading to suboptimal performance. To address this challenge, a dynamic rolling-window forecasting strategy is employed in this study, enabling the models to adaptively update their predictions by leveraging the most recent information.
+Time-series data often exhibit non-stationarity, where trends, seasonality, and noise evolve over time. Static forecasting approaches relying on fixed historical data may struggle to capture these dynamics, leading to suboptimal performance. To address this, a dynamic rolling-window forecasting strategy is employed, enabling models to prioritize recent information and adapt to structural changes.
 
-The rolling-window mechanism operates iteratively. At each time step \(t\), the training dataset is updated to include the most recent observations while discarding older data beyond the defined window size. This dynamic adjustment ensures that the models prioritize recent patterns, which are often more predictive of future behavior, while mitigating the influence of outdated or less relevant data. Formally, the training dataset at time \(t\) can be expressed as:
+At each time step \(t\), the training dataset is updated to include the most recent observations while discarding older data beyond the defined window size (\(W\)). Formally, the training dataset at \(t\) is defined as:
 
 \[
 \mathcal{D}_{t} = \{(y_{\tau}, \mathbf{X}_{\tau}) \mid \tau \in [t - W, t-1]\},
 \]
 
-where \(\mathcal{D}_{t}\) represents the dataset used for training at time \(t\), \(W\) is the window size, \(y_{\tau}\) denotes the target variable, and \(\mathbf{X}_{\tau}\) encompasses the corresponding feature vectors. After training on \(\mathcal{D}_{t}\), predictions are generated for the next time step (\(t+1\)).
+where \(\mathcal{D}_{t}\) is the training data, \(y_{\tau}\) denotes the target variable, and \(\mathbf{X}_{\tau}\) represents feature vectors. After training on \(\mathcal{D}_{t}\), predictions are generated for the next time step (\(t+1\)).
 
-This strategy is particularly advantageous for capturing short-term dynamics in non-stationary data. By continuously updating the training window, the models are able to respond to structural changes in the data, such as shifts in trends or seasonal patterns. Furthermore, the rolling-window approach inherently supports the detection of emerging behaviors, ensuring that the forecasting framework remains robust in dynamic and evolving environments.
+The rolling-window approach effectively captures short-term dynamics by prioritizing recent patterns while mitigating the influence of outdated data. It is particularly advantageous for handling structural changes such as shifts in trends or seasonality. The choice of window size (\(W\)) is critical: larger windows incorporate long-term patterns, while smaller windows emphasize recent changes. This study evaluates multiple window sizes and selects the optimal configuration based on metrics such as root mean squared error (RMSE) and symmetric mean absolute percentage error (SMAPE).
 
-A critical consideration in rolling-window forecasting is the determination of an appropriate window size (\(W\)). A larger \(W\) incorporates long-term historical information, which may benefit datasets with persistent trends or pronounced seasonality. Conversely, a smaller \(W\) focuses on recent observations, offering greater sensitivity to abrupt changes or irregular patterns. To balance these trade-offs, this study empirically evaluates multiple window sizes for each model and selects the optimal configuration based on performance metrics such as root mean squared error (RMSE) and symmetric mean absolute percentage error (SMAPE).
+Integrating rolling-window forecasting into the hybrid framework enhances adaptability:
+\begin{itemize}
+    \item \textbf{SARIMAX}: Dynamically recalibrates coefficients to model short-term dependencies and external influences.
+    \item \textbf{XGBoost}: Refines decision trees with updated feature interactions, capturing evolving non-linear relationships.
+    \item \textbf{Prophet}: Updates its trend decomposition to align with the latest data.
+\end{itemize}
 
-The integration of rolling-window forecasting into the hybrid framework further enhances its adaptability. For example, SARIMAX dynamically recalibrates its coefficients using the updated dataset, allowing it to effectively model short-term dependencies and external influences. Similarly, XGBoost leverages the rolling-window mechanism to refine its decision trees, incorporating the most recent feature interactions to capture evolving non-linear relationships. Prophet, with its inherent trend decomposition capabilities, also benefits from the dynamic updating of its training set, ensuring that its predictions remain aligned with the latest trends.
-
-In summary, the dynamic rolling-window forecasting strategy underpins the robustness and flexibility of the proposed framework. By iteratively incorporating recent information while adapting to structural changes, this approach ensures that the models remain both responsive and resilient, achieving superior forecasting performance across diverse drug consumption scenarios.
+This iterative strategy ensures the models remain responsive and resilient to changes, achieving superior performance across diverse drug consumption scenarios by continuously adapting to the most recent dynamics.
 
 \subsection{Implementation and Optimization}
 
