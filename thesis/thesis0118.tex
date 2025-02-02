@@ -48,65 +48,75 @@ In this study, to address the limitations of existing models, such as adjusting 
 The remainder of this paper is organized as follows: Section II details the methodology, highlighting the advantages of the proposed framework. Section III presents experimental and results, including data preprocessing and data analysis. Finally, Section IV concludes the study and outlines future research directions.
 
 \section{Methodology}
-
 \subsection{DynamicXSP Model Framework}
 
-[probably can remove] The proposed hybrid forecasting framework integrates the complementary strengths of Prophet, SARIMAX, and XGBoost to address the diverse challenges in drug consumption prediction.
+The DynamicXSP framework integrates SARIMAX, XGBoost and Prophet to improve drug consumption forecasting by leveraging the strengths of each model. Given the heterogeneous nature of drug-manufacturer combinations, where some exhibit stable trends while others fluctuate due to supply chain disruptions or policy changes, a dynamic approach is necessary.
 
-Drug consumption data exhibits significant variability, with some combinations showing consistent trends while others experience volatility or irregular demand. 
+To optimize predictive accuracy, the framework evaluates multiple models for each combination using performance metrics such as \( R^2 \) and symmetric mean absolute percentage error (SMAPE). The best-performing model is selected to ensure adaptability to varying consumption patterns.
 
-To optimize predictions, the framework dynamically selects the most appropriate model for each drug-manufacturer combination. Performance metrics such as R\(^2\) and symmetric mean absolute percentage error (SMAPE) are employed to evaluate each model’s effectiveness. With a high R\(^2\) score and low SMAPE [indicates that the model captures most of the variance in the data, while a low SMAPE value reflects accuracy in representing relative changes.] This data-driven model selection process ensures that the framework adapts to heterogeneous consumption patterns, maximizing prediction accuracy and robustness.
+DynamicXSP follows a structured process:
 
-[remove] By dynamically assigning models based on their strengths, the hybrid framework efficiently handles diverse scenarios. Prophet is ideal for stable and predictable datasets, SARIMAX excels in addressing external factors and seasonality, while XGBoost captures non-linear and sparse patterns. This synergy of models enhances the overall robustness of the forecasting system, providing a scalable and versatile solution for hospital pharmacies managing a wide range of drug consumption trends.
+\begin{itemize}
+    \item Feature engineering constructs lag-based variables, rolling statistics, and external factor indicators to enhance predictive modeling.
+    \item Model training applies SARIMAX, XGBoost and Prophet with rolling-window forecasting to ensure adaptability to recent trends.
+    \item Model selection identifies the most effective model for each drug-manufacturer pair based on validation performance.
+\end{itemize}
+
+By dynamically assigning models based on data characteristics and performance metrics, the framework enhances predictive accuracy and robustness in hospital pharmacy inventory management.
 
 \subsection{Model Design and Roles}
 \subsubsection{DynamicXSP-S (SARIMAX) Model}
 
-SARIMAX extends the traditional ARIMA model by incorporating external (exogenous) variables, making it well-suited for time-series data with seasonality, trends, and contextual factors. The model is defined as:
+SARIMAX extends the traditional ARIMA framework by incorporating external (exogenous) variables, making it particularly effective for forecasting drug consumption, where demand is influenced by both historical trends and external factors such as manufacturer-specific supply patterns and hospital inventory policies. The model is defined as:
 
 \begin{equation}
 y_{t} = \phi(B)\theta(B)^{-1} \left( c + \mathbf{X}_{t}\beta + \epsilon_{t} \right),
 \end{equation}
 
-where \(y_{t}\) represents the target variable (e.g., monthly drug consumption), \(\mathbf{X}_{t}\) denotes the exogenous variables, and \(\epsilon_{t}\) is the white noise error term. 
+where \(y_{t}\) represents the weekly reduction in drug inventory, \(\mathbf{X}_{t}\) denotes the set of exogenous features designed to capture relevant consumption patterns, and \(\epsilon_{t}\) is a white noise error term.
 
-To enhance prediction accuracy, our SARIMAX utilizes advanced feature engineering to incorporate exogenous variables, including:
+To improve predictive performance, our DynamicXSP-S model incorporates domain-specific feature engineering tailored to hospital pharmacy drug consumption data. These features capture both short-term fluctuations and long-term trends, ensuring robustness in dynamic demand environments. The key engineered features include:
 
 \begin{itemize}
-    \item \textbf{Lagged values}: Capture delayed effects of past consumption:
+    \item Lagged values: Capture delayed effects of past consumption, particularly useful for modeling hospital restocking cycles and manufacturer supply constraints:
     \begin{equation}
-    \text{lag}_{k} = y_{t-k}, \quad k \in \{1, 3, 6, 12\}.
+    \text{drug\_consume\_lag}_{k} = y_{t-k}, \quad k \in \{1, 3, 6, 12\}.
     \end{equation}
-    
-    \item \textbf{Rolling statistics}: Represent short-term trends and variability:
+    These lag selections align with common drug procurement intervals observed in historical data.
+
+    \item Rolling statistics: Represent short-term demand fluctuations and variability, helping the model account for unexpected surges in drug usage due to seasonal illnesses or policy changes:
     \begin{align}
-    \text{Rolling Mean}_{k} &= \frac{1}{k} \sum_{i=1}^{k} y_{t-i}, \\
-    \text{Rolling Std}_{k} &= \sqrt{\frac{1}{k} \sum_{i=1}^{k} (y_{t-i} - \text{Mean})^2}.
+    \text{consume\_rolling\_mean}_{k} &= \frac{1}{k} \sum_{i=1}^{k} y_{t-i}, \\
+    \text{consume\_rolling\_std}_{k} &= \sqrt{\frac{1}{k} \sum_{i=1}^{k} (y_{t-i} - \text{mean})^2}.
     \end{align}
-    
-    \item \textbf{Seasonality}: Encode monthly seasonality using trigonometric functions:
+    Unlike standard moving averages, these rolling features dynamically adjust to different drug types, ensuring adaptability across various manufacturers.
+
+    \item Seasonality encoding: Drug consumption often follows predictable monthly cycles due to hospital procurement schedules. To effectively model this, we apply trigonometric transformations:
     \begin{align}
-    \text{Month\_sin} &= \sin\left(\frac{2\pi \cdot \text{Month}}{12}\right), \\
-    \text{Month\_cos} &= \cos\left(\frac{2\pi \cdot \text{Month}}{12}\right).
+    \text{month\_sin} &= \sin\left(\frac{2\pi \cdot \text{month}}{12}\right), \\
+    \text{month\_cos} &= \cos\left(\frac{2\pi \cdot \text{month}}{12}\right).
     \end{align}
-    
-    \item \textbf{Exponential weighted moving average (EWMA)}: Smoothing recent observations:
+    This formulation allows SARIMAX to capture periodic fluctuations smoothly without requiring manual seasonal differencing.
+
+    \item Exponentially Weighted Moving Average (EWMA): Provides a memory-adjusted smoothing technique that prioritizes recent observations, making the model more responsive to sudden shifts in drug demand:
     \begin{equation}
     \text{EWMA}_{\alpha} = \alpha y_{t} + (1-\alpha) \cdot \text{EWMA}_{\alpha,t-1}.
     \end{equation}
-    
-    \item \textbf{Percentage change and trend strength}: Capture relative variations and long-term dynamics:
+    The smoothing factor \(\alpha\) is adjusted based on drug-specific volatility (in our model, we use 3), ensuring that short-term demand spikes are reflected in the model while filtering out noise.
+
+    \item Percentage change and trend strength: Designed to measure relative variations and stability in consumption patterns, providing key signals for adaptive inventory planning:
     \begin{align}
-    \text{Pet\_Change}_{k} &= \frac{y_{t} - y_{t-k}}{y_{t-k}}, \\
-    \text{Trend Strength} &= \frac{1}{k} \sum_{i=1}^{k} \lvert y_{t-i} - y_{t-i-1} \rvert.
+    \text{pct\_change\_consume}_{k} &= \frac{y_{t} - y_{t-k}}{y_{t-k}}, \\
+    \text{comsume\_trend\_strength} &= \frac{1}{k} \sum_{i=1}^{k} \lvert y_{t-i} - y_{t-i-1} \rvert.
     \end{align}
+    The trend strength metric allows the model to differentiate between regular seasonal variations and abrupt changes due to supply chain disruptions.
 \end{itemize}
 
-These engineered features enable SARIMAX to capture both short-term dependencies and long-term trends, significantly enhancing its ability to model complex temporal patterns in drug consumption data.
+These engineered features were selected based on statistical analysis of hospital pharmacy consumption data, ensuring that the SARIMAX model captures both recurrent and unexpected demand shifts. By integrating rolling-window forecasting and dynamically adjusting feature selection per drug-manufacturer pair, our approach enhances predictive accuracy and robustness in real-world hospital inventory management scenarios.
 
 \subsubsection{DynamicXSP-X (XGBoost) Model}
 
-XGBoost is a gradient boosting framework that constructs an ensemble of decision trees to predict the target variable \(y_t\). It is particularly effective for time-series forecasting involving non-linear relationships and sparse data. The model predicts \(y_t\) through an additive function:
+XGBoost is a gradient boosting framework that constructs an ensemble of decision trees to predict the target variable \(y_t\). It is particularly effective for time-series forecasting involving non-linear relationships and sparse data, making it well-suited for drug consumption prediction, where demand varies across manufacturers and fluctuates due to external factors. The model predicts \(y_t\) through an additive function:
 
 \begin{equation}
 \hat{y}_{t} = F(x_{t}) = \sum_{k=1}^{K} f_{k}(x_{t}), \quad f_{k} \in \mathcal{F},
@@ -114,46 +124,35 @@ XGBoost is a gradient boosting framework that constructs an ensemble of decision
 
 where \(\hat{y}_{t}\) is the predicted value, \(x_{t}\) represents input features, \(f_{k}\) denotes the \(k\)-th decision tree, and \(\mathcal{F}\) is the space of decision trees.
 
-\textbf{Feature Engineering:} Temporal dependencies are captured using lagged values (\(y_{t-1}, y_{t-2}, \dots\)), rolling statistics (e.g., moving averages and standard deviations over 3, 6, and 12 periods), and seasonal patterns encoded via trigonometric functions (\(\sin, \cos\)). Interaction terms between lagged values and seasonal indicators further enhance the model's ability to capture complex dependencies.
+To effectively capture temporal dependencies, our model utilizes lagged values (\(y_{t-1}, y_{t-2}, \dots\)), rolling statistics (e.g., moving averages and standard deviations over 3, 6, and 12 periods), and consumption trend indicators. These features help the model recognize historical patterns in drug usage and detect shifts in demand dynamics, which is essential given the variability across different drug manufacturers. Additionally, interaction terms between lagged values and rolling statistics further enhance the model's ability to capture complex dependencies.
 
-\textbf{Rolling-Window Training:} The model employs a rolling-window approach to dynamically adapt to evolving trends. At each iteration, the training dataset is updated with the most recent observations, and the model is retrained to make predictions for the next time step, ensuring adaptability and minimizing overfitting.
+Hyperparameters such as the number of estimators, learning rate, tree depth, and sampling ratios are tuned using grid search to achieve a balance between predictive accuracy and model complexity. As part of the hybrid forecasting framework, our DynamicXSP-X benefits from dynamic updates to its training data, allowing it to remain responsive to evolving demand patterns.
 
-\textbf{Hyperparameter Optimization:} To maximize performance, a grid search tunes parameters such as:
-\begin{itemize}
-    \item \textit{Number of estimators}: Determines ensemble size.
-    \item \textit{Learning rate}: Controls the contribution of each tree.
-    \item \textit{Maximum tree depth}: Prevents overfitting by limiting tree complexity.
-    \item \textit{Subsample and column sampling ratios}: Enhance generalization by regulating data and feature subsets.
-\end{itemize}
-
-By modeling non-linear interactions and addressing irregular patterns, XGBoost complements statistical models like SARIMAX. Its integration with rolling-window training and advanced feature engineering ensures robust and adaptive predictions, making it a key component of the hybrid forecasting framework.
-
+By capturing non-linear interactions and irregular consumption trends, DynamicXSP-X serves as a powerful complement to statistical models like DynamicXSP-S. Its ability to learn complex patterns from historical data ensures that it remains a robust and adaptive component of the forecasting system.
 
 \subsubsection{DynamicXSP-P (Prophet) Model}
 
-Prophet is a time-series forecasting model developed by Facebook, designed to decompose data into trend, seasonality, and holiday components. It is particularly effective in handling missing values, outliers, and irregular patterns, making it suitable for dynamic drug consumption data. The model predicts the target variable \(y_t\) as:
+Prophet is a time-series forecasting model, designed to decompose data into trend, seasonality, and external event components. In our model, we optimized Prophet to DynamicXSP-P to make it more effective for handling missing values, outliers, and irregular consumption patterns for drug demand forecasting, where sudden fluctuations and manufacturer-specific trends are common. The model predicts the target variable \(y_t\) as:
 
 \begin{equation}
 y_{t} = g(t) + s(t) + h(t) + \epsilon_{t},
 \end{equation}
 
-where \(g(t)\) represents the long-term trend, \(s(t)\) captures seasonal patterns using Fourier series, \(h(t)\) accounts for holiday effects, and \(\epsilon_{t}\) is the white noise error term. This decomposition enhances interpretability while maintaining predictive accuracy.
+where \(g(t)\) represents the long-term trend, \(s(t)\) captures seasonal patterns using Fourier series, \(h(t)\) accounts for external disruptions (such as regulatory policy changes or supply chain delays), and \(\epsilon_{t}\) is the white noise error term. This decomposition enhances interpretability while allowing the model to dynamically adjust to varying consumption behaviors.
 
-\textbf{Hyperparameter Optimization:} Key hyperparameters are optimized via grid search:
+Key hyperparameters are optimized to ensure the model adapts effectively to changes in drug demand. The tuning process focuses on:
 \begin{itemize}
-    \item \textit{seasonality\_mode}: Models seasonal effects as additive or multiplicative.
-    \item \textit{changepoint\_prior\_scale}: Controls flexibility for abrupt trend changes.
-    \item \textit{seasonality\_prior\_scale}: Adjusts the weight of seasonal components.
+    \item \textit{seasonality\_mode}: Determines whether seasonal effects are additive or multiplicative, depending on consumption volatility.
+    \item \textit{changepoint\_prior\_scale}: Controls the sensitivity to abrupt trend shifts, crucial for modeling demand surges or supply disruptions.
+    \item \textit{seasonality\_prior\_scale}: Adjusts the weight of seasonal components to ensure a balance between smooth long-term trends and short-term variations.
 \end{itemize}
-A higher \textit{changepoint\_prior\_scale} enables the model to adapt to frequent structural changes, while lower values favor smoother transitions.
+A higher \textit{changepoint\_prior\_scale} allows the model to react more quickly to structural changes, such as increased demand due to new hospital procurement policies, while lower values favor smoother trend transitions.
 
-\textbf{Rolling-Window Forecasting:} The model employs a rolling-window strategy, retraining on the most recent data at each iteration. This ensures adaptability to emerging trends while mitigating the impact of outdated patterns, making it robust for datasets with irregular or sparse observations.
-
-By combining decomposition capabilities, grid search optimization, and rolling-window forecasting, Prophet provides accurate and interpretable predictions, complementing the other components of the hybrid framework.
+DynamicXSP-P benefits from continuous data updates, enabling it to remain responsive to evolving drug consumption trends while preventing overfitting to outdated patterns. By leveraging decomposition-based forecasting and hyperparameter tuning, Prophet provides an interpretable and adaptive prediction mechanism that complements DynamicXSP-S and DynamicXSP-X within the hybrid framework. Its ability to capture trend shifts and seasonal dependencies makes it a crucial component for enhancing forecasting accuracy across various drug manufacturers.
 
 \subsection{Dynamic Rolling-Window Forecasting}
 
-Time-series data often exhibit non-stationarity, where trends, seasonality, and noise evolve over time. Static forecasting approaches relying on fixed historical data may struggle to capture these dynamics, leading to suboptimal performance. To address this, a dynamic rolling-window forecasting strategy is employed, enabling models to prioritize recent information and adapt to structural changes.
+Time-series data in drug consumption forecasting often exhibit non-stationarity, where trends, seasonality, and noise evolve over time. Static forecasting approaches that rely on fixed historical data may struggle to capture these dynamics, leading to suboptimal performance. To address this, a dynamic rolling-window forecasting strategy is employed, enabling models to prioritize recent information and adapt to structural changes in demand.
 
 At each time step \(t\), the training dataset is updated to include the most recent observations while discarding older data beyond the defined window size (\(W\)). Formally, the training dataset at \(t\) is defined as:
 
@@ -161,18 +160,18 @@ At each time step \(t\), the training dataset is updated to include the most rec
 \mathcal{D}_{t} = \{(y_{\tau}, \mathbf{X}_{\tau}) \mid \tau \in [t - W, t-1]\},
 \]
 
-where \(\mathcal{D}_{t}\) is the training data, \(y_{\tau}\) denotes the target variable, and \(\mathbf{X}_{\tau}\) represents feature vectors. After training on \(\mathcal{D}_{t}\), predictions are generated for the next time step (\(t+1\)).
+where \(\mathcal{D}_{t}\) is the training data, \(y_{\tau}\) denotes the target variable (drug consumption), and \(\mathbf{X}_{\tau}\) represents the corresponding feature vectors. After training on \(\mathcal{D}_{t}\), predictions are generated for the next time step (\(t+1\)).
 
-The rolling-window approach effectively captures short-term dynamics by prioritizing recent patterns while mitigating the influence of outdated data. It is particularly advantageous for handling structural changes such as shifts in trends or seasonality. The choice of window size (\(W\)) is critical: larger windows incorporate long-term patterns, while smaller windows emphasize recent changes. This study evaluates multiple window sizes and selects the optimal configuration based on metrics such as root mean squared error (RMSE) and symmetric mean absolute percentage error (SMAPE).
+The rolling-window approach effectively captures short-term dynamics by prioritizing recent patterns while mitigating the influence of outdated data. This is particularly beneficial for handling structural changes such as sudden shifts in demand due to hospital procurement cycles, manufacturer-specific supply fluctuations, and regulatory interventions. The choice of window size (\(W\)) is critical: larger windows incorporate long-term trends, while smaller windows emphasize recent changes. This study evaluates multiple window sizes and selects the optimal configuration based on metrics such as root mean squared error (RMSE) and symmetric mean absolute percentage error (SMAPE).
 
 Integrating rolling-window forecasting into the hybrid framework enhances adaptability:
 \begin{itemize}
-    \item \textbf{SARIMAX}: Dynamically recalibrates coefficients to model short-term dependencies and external influences.
-    \item \textbf{XGBoost}: Refines decision trees with updated feature interactions, capturing evolving non-linear relationships.
-    \item \textbf{Prophet}: Updates its trend decomposition to align with the latest data.
+    \item \textbf{DynamicXSP-S}: Dynamically recalibrates coefficients to model short-term dependencies and external influences in drug consumption.
+    \item \textbf{DynamicXSP-X}: Refines decision trees with updated feature interactions, capturing evolving non-linear relationships in manufacturer-specific demand shifts.
+    \item \textbf{DynamicXSP-P}: Updates its trend decomposition to align with the latest data, ensuring better adaptability to seasonal and structural variations.
 \end{itemize}
 
-This iterative strategy ensures the models remain responsive and resilient to changes, achieving superior performance across diverse drug consumption scenarios by continuously adapting to the most recent dynamics.
+This iterative strategy ensures that the models remain responsive and resilient to changes, achieving superior forecasting performance across diverse drug consumption scenarios by continuously adapting to the most recent data trends.
 
 \section{Experiments}
 
