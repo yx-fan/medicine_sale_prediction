@@ -1,0 +1,76 @@
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{geometry}
+\usepackage{authblk}
+\geometry{a4paper, margin=1in}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+}
+
+
+\appendix
+\section{Sample Selection Algorithm}
+\label{appendix:sample-selection}
+
+The following pseudocode outlines the sample selection process used to ensure the quality and relevance of the dataset for modeling tasks:
+
+\begin{algorithm}[H]
+\caption{Sample Selection Algorithm}
+\begin{algorithmic}[1]
+\Require Cleaned data $df$, configuration thresholds $\text{config}$
+\Ensure Filtered dataset $final\_df$
+\State $final\_df \gets \emptyset$
+\For{each unique combination of drug name and manufacturer $(d, m)$ in $df$}
+    \State $group\_data \gets$ subset of $df$ for $(d, m)$
+    \If{length of $group\_data < \text{config.min\_months}$ \textbf{or} sum of consumption $= 0$}
+        \State \textbf{Skip group} \Comment{Insufficient or sparse data}
+    \EndIf
+    \State $non\_zero\_ratio \gets$ proportion of non-zero consumption in $group\_data$
+    \If{$non\_zero\_ratio < \text{config.sparsity\_threshold}$}
+        \State \textbf{Skip group} \Comment{Data too sparse}
+    \EndIf
+    \State $acf\_values \gets$ autocorrelation function of consumption in $group\_data$
+    \If{$\max(acf\_values[1:]) < \text{config.min\_acf\_threshold}$}
+        \State \textbf{Skip group} \Comment{Insufficient autocorrelation}
+    \EndIf
+    \If{no start date $\geq \text{config.min\_start\_date}$ in $group\_data$}
+        \State \textbf{Skip group} \Comment{No recent data}
+    \EndIf
+    \State $variance \gets$ variance of consumption in $group\_data$
+    \If{$variance < \text{config.min\_variance\_threshold}$}
+        \State \textbf{Skip group} \Comment{Variance too low}
+    \EndIf
+    \State $missing\_ratio \gets$ maximum missing ratio for features in $group\_data$
+    \If{$missing\_ratio > \text{config.max\_missing\_ratio}$}
+        \State \textbf{Skip group} \Comment{Feature missing data too high}
+    \EndIf
+    \State $skewness \gets$ skewness of consumption in $group\_data$
+    \If{$|skewness| > \text{config.max\_skewness}$}
+        \State \textbf{Skip group} \Comment{Target variable too skewed}
+    \EndIf
+    \State $correlation \gets$ correlation of consumption with lagged features in $group\_data$
+    \If{$|correlation| < \text{config.min\_correlation}$}
+        \State \textbf{Skip group} \Comment{Insufficient correlation with features}
+    \EndIf
+    \State $final\_df \gets final\_df \cup group\_data$
+\EndFor
+\State \Return $final\_df$
+
+\end{algorithmic}
+\end{algorithm}
+\end{document}
