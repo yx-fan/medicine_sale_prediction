@@ -16,15 +16,15 @@ __pycache__/
 
 dataset
 
-xgboost_best_prediction_results_v4.csv
-xgboost_best_model_results_v4.csv
-prophet_rolling_model_results.csv
-sarimax_model_results.csv
-advanced_sarimax_model_results.csv
-v2_xgboost_best_model_results_v4.csv
-v2_xgboost_best_prediction_results_v4.csv
-final_monthly_combined_df_after_cleaning.csv
-v2_prophet_rolling_model_results.csv
+# xgboost_best_prediction_results_v4.csv
+# xgboost_best_model_results_v4.csv
+# prophet_rolling_model_results.csv
+# sarimax_model_results.csv
+# advanced_sarimax_model_results.csv
+# v2_xgboost_best_model_results_v4.csv
+# v2_xgboost_best_prediction_results_v4.csv
+# final_monthly_combined_df_after_cleaning.csv
+# v2_prophet_rolling_model_results.csv
 clean_main_month_total_r4.py
 
 model_plots/
