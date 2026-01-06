@@ -9,6 +9,8 @@ from models.metrics import calculate_metrics
 from models.visualization import plot_predictions
 import matplotlib.pyplot as plt
 import os
+from joblib import Parallel, delayed
+from itertools import product
 
 # Command-line arguments
 parser = argparse.ArgumentParser(description='Rolling XGBoost model with a specific training start date')
@@ -96,56 +98,74 @@ for idx, row in enumerate(unique_groups.iterrows(), 1):
                          len(param_grid['colsample_bytree']))
     print(f"  - Starting grid search with {total_combinations} parameter combinations...")
     
-    # Perform grid search
-    combo_count = 0
-    for n_estimators in param_grid['n_estimators']:
-        for learning_rate in param_grid['learning_rate']:
-            for max_depth in param_grid['max_depth']:
-                for subsample in param_grid['subsample']:
-                    for colsample_bytree in param_grid['colsample_bytree']:
-                        combo_count += 1
-                        if combo_count % 10 == 0:
-                            print(f"    - Testing combination {combo_count}/{total_combinations}...", end='\r')
-                        
-                        params = {
-                            'n_estimators': n_estimators,
-                            'learning_rate': learning_rate,
-                            'max_depth': max_depth,
-                            'subsample': subsample,
-                            'colsample_bytree': colsample_bytree,
-                            'random_state': 42,
-                            'objective': 'reg:squarederror'
-                        }
-
-                        rolling_predictions = []
-                        rolling_actuals = []
-
-                        for i in range(initial_train_size, len(group_data)):
-                            X_train = X.iloc[:i]
-                            y_train = y.iloc[:i]
-                            X_test = X.iloc[[i]]
-                            actual_value = y.iloc[i]
-
-                            model = XGBRegressor(**params)
-                            model.fit(X_train, y_train)
-                            predicted_value = model.predict(X_test)[0]
-                            rolling_predictions.append(max(predicted_value, 0))
-                            rolling_actuals.append(actual_value)
-
-                        if rolling_predictions:
-                            rolling_predictions = np.array(rolling_predictions)
-                            rolling_actuals = np.array(rolling_actuals)
-                            valid_indices = ~np.isnan(rolling_actuals) & ~np.isnan(rolling_predictions)
-                            if valid_indices.any():
-                                r2 = r2_score(
-                                    rolling_actuals[valid_indices], rolling_predictions[valid_indices]
-                                )
-                                r2_results.append({'Params': params, 'R²': r2})
-                                if r2 > best_r2:
-                                    best_r2 = r2
-                                    best_params = params
-                                    best_predictions = rolling_predictions
-                                    print(f"    - New best R²: {best_r2:.4f} (combination {combo_count}/{total_combinations})")
+    # Generate all parameter combinations
+    param_combinations = list(product(
+        param_grid['n_estimators'],
+        param_grid['learning_rate'],
+        param_grid['max_depth'],
+        param_grid['subsample'],
+        param_grid['colsample_bytree']
+    ))
+    
+    def evaluate_params(params_tuple):
+        """Evaluate a single parameter combination"""
+        n_estimators, learning_rate, max_depth, subsample, colsample_bytree = params_tuple
+        params = {
+            'n_estimators': n_estimators,
+            'learning_rate': learning_rate,
+            'max_depth': max_depth,
+            'subsample': subsample,
+            'colsample_bytree': colsample_bytree,
+            'random_state': 42,
+            'objective': 'reg:squarederror',
+            'n_jobs': 1  # Use 1 thread per model since we're parallelizing at parameter level
+        }
+        
+        rolling_predictions = []
+        rolling_actuals = []
+        
+        for i in range(initial_train_size, len(group_data)):
+            X_train = X.iloc[:i]
+            y_train = y.iloc[:i]
+            X_test = X.iloc[[i]]
+            actual_value = y.iloc[i]
+            
+            model = XGBRegressor(**params)
+            model.fit(X_train, y_train)
+            predicted_value = model.predict(X_test)[0]
+            rolling_predictions.append(max(predicted_value, 0))
+            rolling_actuals.append(actual_value)
+        
+        if rolling_predictions:
+            rolling_predictions = np.array(rolling_predictions)
+            rolling_actuals = np.array(rolling_actuals)
+            valid_indices = ~np.isnan(rolling_actuals) & ~np.isnan(rolling_predictions)
+            if valid_indices.any():
+                r2 = r2_score(
+                    rolling_actuals[valid_indices], rolling_predictions[valid_indices]
+                )
+                return {'Params': params, 'R²': r2, 'predictions': rolling_predictions}
+        return None
+    
+    # Parallel grid search - leave some CPU cores for other programs
+    import multiprocessing
+    total_cores = multiprocessing.cpu_count()
+    # Use 75% of available cores, but at least 2 and at most 12
+    n_jobs = max(2, min(12, int(total_cores * 0.75)))
+    print(f"  - Using parallel processing with {n_jobs}/{total_cores} CPU cores (leaving {total_cores - n_jobs} cores for other programs)...")
+    results = Parallel(n_jobs=n_jobs, verbose=0)(
+        delayed(evaluate_params)(params_tuple) for params_tuple in param_combinations
+    )
+    
+    # Find best result
+    for result in results:
+        if result is not None:
+            r2_results.append({'Params': result['Params'], 'R²': result['R²']})
+            if result['R²'] > best_r2:
+                best_r2 = result['R²']
+                best_params = result['Params']
+                best_predictions = result['predictions']
+                print(f"    - New best R²: {best_r2:.4f}")
     
     print(f"  - Grid search completed. Best R²: {best_r2:.4f}")
 
@@ -198,11 +218,14 @@ for idx, row in enumerate(unique_groups.iterrows(), 1):
             feature_importance.to_csv(feature_importance_file, mode='a', header=False, index=False)
             
             # Plot feature importance
+            # Use English labels to avoid font issues
             plt.figure(figsize=(10, 6))
             plt.barh(range(len(feature_importance)), feature_importance['importance'].values)
             plt.yticks(range(len(feature_importance)), feature_importance['feature'].values)
-            plt.xlabel('Feature Importance')
-            plt.title(f'XGBoost Feature Importance: {drug_name} - {factory_name}')
+            plt.xlabel('Feature Importance', fontsize=12)
+            # Use safe title without Chinese characters to avoid font issues
+            safe_title = f'XGBoost Feature Importance: {drug_name[:20]} - {factory_name[:20]}'
+            plt.title(safe_title, fontsize=12)
             plt.gca().invert_yaxis()
             plt.tight_layout()
             plot_dir = "model_plots_xgv4auto_v2"
@@ -216,7 +239,12 @@ for idx, row in enumerate(unique_groups.iterrows(), 1):
     # Plot predictions
     if best_predictions is not None:
         print(f"  - Generating prediction plot...")
-        plot_predictions(group_data.set_index('ds'), best_predictions, drug_name, factory_name, configmonth.font_path, "model_plots_xgv4auto_v2")
+        # Use None for font_path, let the function auto-detect
+        try:
+            plot_predictions(group_data.set_index('ds'), best_predictions, drug_name, factory_name, None, "model_plots_xgv4auto_v2")
+        except Exception as e:
+            print(f"  - Warning: Could not generate prediction plot: {e}")
+            print(f"  - Continuing without plot...")
         print(f"  ✓ Completed: {drug_name} - {factory_name}")
     else:
         print(f"  ✗ Skipped: {drug_name} - {factory_name} (insufficient data)")

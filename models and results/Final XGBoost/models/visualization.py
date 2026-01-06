@@ -1,16 +1,64 @@
 import os
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
+import platform
 
-def plot_predictions(group_data, predictions, drug_name, factory_name, font_path, plot_dir=None, show_plot=False):
-    font = FontProperties(fname=font_path)
+def get_chinese_font():
+    """Get Chinese font path based on the operating system"""
+    system = platform.system()
+    
+    # Try to find Chinese fonts on different systems
+    font_paths = []
+    
+    if system == 'Darwin':  # macOS
+        font_paths = [
+            '/System/Library/Fonts/STHeiti Light.ttc',
+            '/System/Library/Fonts/PingFang.ttc',
+            '/Library/Fonts/Arial Unicode.ttf'
+        ]
+    elif system == 'Linux':
+        font_paths = [
+            '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+            '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+            '/usr/share/fonts/truetype/arphic/uming.ttc',
+            '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
+            '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.otf',
+        ]
+    elif system == 'Windows':
+        font_paths = [
+            'C:/Windows/Fonts/simhei.ttf',
+            'C:/Windows/Fonts/msyh.ttc',
+            'C:/Windows/Fonts/simsun.ttc'
+        ]
+    
+    # Try to find an existing font
+    for path in font_paths:
+        if os.path.exists(path):
+            return FontProperties(fname=path)
+    
+    # Fallback: use matplotlib's default font (may not support Chinese)
+    return FontProperties()
+    # Alternative: use font name instead of file path
+    # return FontProperties(family='DejaVu Sans', size=10)
+
+def plot_predictions(group_data, predictions, drug_name, factory_name, font_path=None, plot_dir=None, show_plot=False):
+    # Use the new font detection function instead of direct font_path
+    font = get_chinese_font()
     plt.figure(figsize=(10, 6))
     plt.plot(group_data.index, group_data['减少数量'], label='Actual')
     plt.plot(group_data.index[len(group_data) - len(predictions):], predictions, label='Forecast', linestyle='--')
-    plt.xlabel('Date', fontproperties=font)
-    plt.ylabel('减少数量', fontproperties=font)
-    plt.title(f'SARIMAX Forecast vs Actual - {drug_name} + {factory_name}', fontproperties=font)
-    plt.legend(prop=font)
+    # Use English labels to avoid font issues, or use font if available
+    try:
+        plt.xlabel('Date', fontproperties=font)
+        plt.ylabel('Consumption', fontproperties=font)  # Changed from Chinese to English
+        plt.title(f'XGBoost Forecast vs Actual - {drug_name} + {factory_name}', fontproperties=font)
+        plt.legend(prop=font)
+    except:
+        # Fallback to default font if Chinese font fails
+        plt.xlabel('Date')
+        plt.ylabel('Consumption')
+        plt.title(f'XGBoost Forecast vs Actual - {drug_name} + {factory_name}')
+        plt.legend()
 
     # Replace invalid characters (e.g., "/") in the drug and factory names
     safe_drug_name = drug_name.replace('/', '_')

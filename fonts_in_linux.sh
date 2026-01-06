@@ -1,0 +1,1 @@
+sudo apt-get install fonts-wqy-microhei fonts-wqy-zenhei
