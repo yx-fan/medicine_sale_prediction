@@ -30,8 +30,8 @@ def check_gpu_available():
                 try:
                     # This will fail if GPU is not properly configured
                     test_model = XGBRegressor(
-                        tree_method='gpu_hist', 
-                        device='cuda', 
+                        tree_method='hist',  # Use hist method with GPU
+                        device='cuda',  # Use CUDA device
                         n_estimators=1,
                         max_depth=1
                     )
@@ -168,8 +168,8 @@ for idx, row in enumerate(unique_groups.iterrows(), 1):
         
         # Use GPU if available to reduce CPU temperature
         if USE_GPU:
-            params['tree_method'] = 'gpu_hist'  # Use GPU-accelerated histogram algorithm
-            params['device'] = 'cuda'  # Use CUDA device
+            params['tree_method'] = 'hist'  # Use histogram algorithm
+            params['device'] = 'cuda'  # Use CUDA device (this enables GPU acceleration)
         
         rolling_predictions = []
         rolling_actuals = []
