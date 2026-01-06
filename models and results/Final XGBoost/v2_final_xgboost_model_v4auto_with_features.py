@@ -20,7 +20,10 @@ start_date_filter = pd.to_datetime(args.start_date)
 end_date_filter = pd.to_datetime(args.end_date)
 
 # Load and filter data
+print(f"[INFO] Loading data from final_monthly_combined_df_after_cleaning.csv...")
+print(f"[INFO] Date range: {start_date_filter} to {end_date_filter}")
 df = load_data('final_monthly_combined_df_after_cleaning.csv', start_date_filter, end_date_filter)
+print(f"[INFO] Loaded {len(df)} rows of data")
 df['药品名称'] = df['药品名称'].str.replace('/', '_')
 
 if df.index.name == 'start_date':
@@ -52,10 +55,16 @@ param_grid = {
 }
 
 # Process each group
-for _, row in unique_groups.iterrows():
-    drug_name = row['药品名称']
-    factory_name = row['厂家']
+total_groups = len(unique_groups)
+print(f"\n[INFO] Starting to process {total_groups} drug-manufacturer combinations...")
+print("=" * 80)
+
+for idx, row in enumerate(unique_groups.iterrows(), 1):
+    drug_name = row[1]['药品名称']
+    factory_name = row[1]['厂家']
+    print(f"\n[{idx}/{total_groups}] Processing: {drug_name} - {factory_name}")
     group_data = df[(df['药品名称'] == drug_name) & (df['厂家'] == factory_name)].copy()
+    print(f"  - Data points: {len(group_data)}")
 
     # Add lag and rolling features
     group_data['ds'] = pd.to_datetime(group_data['start_date'])
@@ -79,12 +88,25 @@ for _, row in unique_groups.iterrows():
     best_model = None
     r2_results = []
 
+    # Calculate total parameter combinations
+    total_combinations = (len(param_grid['n_estimators']) * 
+                         len(param_grid['learning_rate']) * 
+                         len(param_grid['max_depth']) * 
+                         len(param_grid['subsample']) * 
+                         len(param_grid['colsample_bytree']))
+    print(f"  - Starting grid search with {total_combinations} parameter combinations...")
+    
     # Perform grid search
+    combo_count = 0
     for n_estimators in param_grid['n_estimators']:
         for learning_rate in param_grid['learning_rate']:
             for max_depth in param_grid['max_depth']:
                 for subsample in param_grid['subsample']:
                     for colsample_bytree in param_grid['colsample_bytree']:
+                        combo_count += 1
+                        if combo_count % 10 == 0:
+                            print(f"    - Testing combination {combo_count}/{total_combinations}...", end='\r')
+                        
                         params = {
                             'n_estimators': n_estimators,
                             'learning_rate': learning_rate,
@@ -123,9 +145,13 @@ for _, row in unique_groups.iterrows():
                                     best_r2 = r2
                                     best_params = params
                                     best_predictions = rolling_predictions
+                                    print(f"    - New best R²: {best_r2:.4f} (combination {combo_count}/{total_combinations})")
+    
+    print(f"  - Grid search completed. Best R²: {best_r2:.4f}")
 
     # Save results
     if best_predictions is not None:
+        print(f"  - Calculating metrics and saving results...")
         actual_values = y.iloc[initial_train_size:].values
         rmse, mae, smape, _ = calculate_metrics(actual_values, best_predictions)
 
@@ -151,9 +177,11 @@ for _, row in unique_groups.iterrows():
             for i in range(initial_train_size, len(group_data))
         ]
         pd.DataFrame(prediction_results).to_csv(prediction_file, mode='a', header=False, index=False)
+        print(f"  - Results saved: RMSE={rmse:.2f}, MAE={mae:.2f}, SMAPE={smape:.2f}%, R²={best_r2:.4f}")
 
         # Calculate and save feature importance using best model trained on all data
         if best_params is not None:
+            print(f"  - Calculating feature importance...")
             # Train final model on all available data (excluding test set) to get feature importance
             final_model = XGBRegressor(**best_params)
             # Use all data except the last few points for feature importance calculation
@@ -183,13 +211,19 @@ for _, row in unique_groups.iterrows():
             safe_factory_name = factory_name.replace('/', '_').replace('\\', '_')
             plt.savefig(f'{plot_dir}/Feature_Importance_{safe_drug_name}_{safe_factory_name}.png', dpi=300, bbox_inches='tight')
             plt.close()
+            print(f"  - Feature importance plot saved")
 
     # Plot predictions
     if best_predictions is not None:
+        print(f"  - Generating prediction plot...")
         plot_predictions(group_data.set_index('ds'), best_predictions, drug_name, factory_name, configmonth.font_path, "model_plots_xgv4auto_v2")
+        print(f"  ✓ Completed: {drug_name} - {factory_name}")
+    else:
+        print(f"  ✗ Skipped: {drug_name} - {factory_name} (insufficient data)")
 
 # Generate overall feature importance summary
-print("Generating overall feature importance summary...")
+print("\n" + "=" * 80)
+print("[INFO] Generating overall feature importance summary...")
 if os.path.exists(feature_importance_file):
     all_feature_importance = pd.read_csv(feature_importance_file)
     
@@ -222,4 +256,11 @@ if os.path.exists(feature_importance_file):
     for idx, row in overall_importance.head(5).iterrows():
         print(f"  {row['rank']}. {row['feature']}: {row['importance']:.4f}")
 
-print("All results have been incrementally saved.")
+    print("\n" + "=" * 80)
+    print("[INFO] All processing completed!")
+    print(f"[INFO] Results saved to: {results_file}")
+    print(f"[INFO] Predictions saved to: {prediction_file}")
+    print(f"[INFO] Feature importance saved to: {feature_importance_file}")
+else:
+    print("\n[WARNING] No feature importance data found. Skipping overall summary.")
+    print("[INFO] All results have been incrementally saved.")
