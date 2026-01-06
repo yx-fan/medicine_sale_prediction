@@ -12,6 +12,51 @@ import os
 from joblib import Parallel, delayed
 from itertools import product
 
+# Check if GPU is available
+def check_gpu_available():
+    """Check if CUDA GPU is available for XGBoost"""
+    try:
+        # First check if nvidia-smi is available
+        import subprocess
+        result = subprocess.run(['nvidia-smi'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            # GPU hardware exists, now check if XGBoost supports it
+            try:
+                # Try to import and check XGBoost GPU support
+                import xgboost as xgb
+                # Check if GPU is available by trying to create a small test
+                test_data = np.array([[1, 2], [3, 4]])
+                test_label = np.array([1, 2])
+                try:
+                    # This will fail if GPU is not properly configured
+                    test_model = XGBRegressor(
+                        tree_method='gpu_hist', 
+                        device='cuda', 
+                        n_estimators=1,
+                        max_depth=1
+                    )
+                    test_model.fit(test_data, test_label)
+                    return True
+                except Exception as e:
+                    # GPU exists but XGBoost can't use it (likely missing CUDA support)
+                    print(f"[INFO] GPU detected but XGBoost GPU support not available: {e}")
+                    return False
+            except Exception as e:
+                return False
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        # nvidia-smi not found or timeout
+        pass
+    except Exception as e:
+        pass
+    return False
+
+# Detect GPU availability
+USE_GPU = check_gpu_available()
+if USE_GPU:
+    print("[INFO] ✓ NVIDIA GPU detected! Will use GPU to reduce CPU temperature and load.")
+else:
+    print("[INFO] No GPU detected or GPU not available. Using CPU (may run hotter with high load).")
+
 # Command-line arguments
 parser = argparse.ArgumentParser(description='Rolling XGBoost model with a specific training start date')
 parser.add_argument('--start_date', type=str, required=True, help='Start date for training (YYYY-MM-DD)')
@@ -118,8 +163,13 @@ for idx, row in enumerate(unique_groups.iterrows(), 1):
             'colsample_bytree': colsample_bytree,
             'random_state': 42,
             'objective': 'reg:squarederror',
-            'n_jobs': 1  # Use 1 thread per model since we're parallelizing at parameter level
+            'n_jobs': 1,  # Use 1 thread per model since we're parallelizing at parameter level
         }
+        
+        # Use GPU if available to reduce CPU temperature
+        if USE_GPU:
+            params['tree_method'] = 'gpu_hist'  # Use GPU-accelerated histogram algorithm
+            params['device'] = 'cuda'  # Use CUDA device
         
         rolling_predictions = []
         rolling_actuals = []
@@ -150,9 +200,15 @@ for idx, row in enumerate(unique_groups.iterrows(), 1):
     # Parallel grid search - leave some CPU cores for other programs
     import multiprocessing
     total_cores = multiprocessing.cpu_count()
-    # Use 75% of available cores, but at least 2 and at most 12
-    n_jobs = max(2, min(12, int(total_cores * 0.75)))
-    print(f"  - Using parallel processing with {n_jobs}/{total_cores} CPU cores (leaving {total_cores - n_jobs} cores for other programs)...")
+    # If using GPU, we can use fewer CPU cores since GPU will do the heavy lifting
+    if USE_GPU:
+        # Use fewer CPU cores when GPU is available (reduces CPU temperature)
+        n_jobs = max(2, min(8, int(total_cores * 0.5)))
+        print(f"  - Using GPU acceleration + {n_jobs}/{total_cores} CPU cores (GPU will reduce CPU load and temperature)...")
+    else:
+        # Use 75% of available cores, but at least 2 and at most 12
+        n_jobs = max(2, min(12, int(total_cores * 0.75)))
+        print(f"  - Using parallel processing with {n_jobs}/{total_cores} CPU cores (leaving {total_cores - n_jobs} cores for other programs)...")
     results = Parallel(n_jobs=n_jobs, verbose=0)(
         delayed(evaluate_params)(params_tuple) for params_tuple in param_combinations
     )
