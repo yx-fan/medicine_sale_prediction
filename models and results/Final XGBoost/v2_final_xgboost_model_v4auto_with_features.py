@@ -166,15 +166,19 @@ for idx, row in enumerate(unique_groups.iterrows(), 1):
             'n_jobs': 1,  # Use 1 thread per model since we're parallelizing at parameter level
         }
         
-        # Use GPU if available to reduce CPU temperature
-        if USE_GPU:
+        # Use GPU only for large datasets to avoid memory issues
+        # For small datasets (< 10000 samples), GPU causes OOM with parallel processing
+        data_size = len(group_data)
+        if USE_GPU and data_size > 10000:
             params['tree_method'] = 'hist'  # Use histogram algorithm
             params['device'] = 'cuda'  # Use CUDA device (this enables GPU acceleration)
         
         rolling_predictions = []
         rolling_actuals = []
         
-        for i in range(initial_train_size, len(group_data)):
+        # Rolling window training - this is the time-consuming part
+        num_rolling_steps = len(group_data) - initial_train_size
+        for step, i in enumerate(range(initial_train_size, len(group_data)), 1):
             X_train = X.iloc[:i]
             y_train = y.iloc[:i]
             X_test = X.iloc[[i]]
@@ -199,19 +203,32 @@ for idx, row in enumerate(unique_groups.iterrows(), 1):
     
     # Parallel grid search - leave some CPU cores for other programs
     import multiprocessing
+    import time
     total_cores = multiprocessing.cpu_count()
-    # If using GPU, we can use fewer CPU cores since GPU will do the heavy lifting
-    if USE_GPU:
-        # Use fewer CPU cores when GPU is available (reduces CPU temperature)
-        n_jobs = max(2, min(8, int(total_cores * 0.5)))
-        print(f"  - Using GPU acceleration + {n_jobs}/{total_cores} CPU cores (GPU will reduce CPU load and temperature)...")
+    # For small datasets, GPU is not beneficial and causes memory issues with parallel processing
+    # GPU is only useful for large datasets (millions of samples)
+    # With parallel processing, each process uses GPU memory, causing OOM
+    data_size = len(group_data)
+    use_gpu_for_this = USE_GPU and data_size > 10000  # Only use GPU for large datasets
+    
+    if use_gpu_for_this:
+        # For large datasets with GPU: use very few parallel processes to avoid GPU memory issues
+        n_jobs = max(2, min(4, int(total_cores * 0.25)))  # Much fewer processes to avoid GPU OOM
+        print(f"  - Using GPU acceleration + {n_jobs}/{total_cores} CPU cores (limited parallelism to avoid GPU memory issues)...")
     else:
-        # Use 75% of available cores, but at least 2 and at most 12
+        if USE_GPU and data_size <= 10000:
+            print(f"  - Dataset too small ({data_size} samples) for GPU benefits. Using CPU instead (GPU causes memory issues with parallel processing).")
+        # Use CPU: can use more parallel processes
         n_jobs = max(2, min(12, int(total_cores * 0.75)))
         print(f"  - Using parallel processing with {n_jobs}/{total_cores} CPU cores (leaving {total_cores - n_jobs} cores for other programs)...")
+    
+    print(f"  - Estimated time: ~{total_combinations * (len(group_data) - initial_train_size) / n_jobs / 10:.1f} seconds per combination (rough estimate)")
+    start_time = time.time()
     results = Parallel(n_jobs=n_jobs, verbose=0)(
         delayed(evaluate_params)(params_tuple) for params_tuple in param_combinations
     )
+    elapsed_time = time.time() - start_time
+    print(f"  - Grid search completed in {elapsed_time:.1f} seconds ({elapsed_time/60:.1f} minutes)")
     
     # Find best result
     for result in results:
